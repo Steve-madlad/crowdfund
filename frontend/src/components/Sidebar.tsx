@@ -14,7 +14,7 @@ interface IconProps {
   handleClick?: () => void;
 }
 
-const Icon = ({ imgUrl, className, name, activeLink, disabled, handleClick }: IconProps) => {
+export const Icon = ({ imgUrl, className, name, activeLink, disabled, handleClick }: IconProps) => {
   return (
     <div
       className={cn(
