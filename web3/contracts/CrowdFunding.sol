@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.38;
 
-contract CroudFunding {
+contract CrowdFunding {
   struct Campaign {
     address owner;
     string title;
@@ -27,7 +27,7 @@ contract CroudFunding {
     string memory _image) public returns (uint256) {
       Campaign storage campaign = campaigns[numberOfCampaigns];
 
-      require(campaign.deadline < block.timestamp, "The deadline should be a date in the future.");
+      require(_deadline > block.timestamp, "The deadline should be a date in the future.");
 
       campaign.owner = _owner;
       campaign.title = _title;

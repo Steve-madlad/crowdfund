@@ -1,11 +1,10 @@
 import cn from '@/lib/utils';
 import React from 'react';
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  title: string;
-}
-
-export default function Button({ title, ...props }: ButtonProps) {
+export default function Button({
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       {...props}
@@ -14,7 +13,7 @@ export default function Button({ title, ...props }: ButtonProps) {
         props.className,
       )}
     >
-      {title}
+      {children}
     </button>
   );
 }

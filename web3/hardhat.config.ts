@@ -6,10 +6,10 @@ export default defineConfig({
   solidity: {
     profiles: {
       default: {
-        version: "0.8.34",
+        version: "0.8.38",
       },
       production: {
-        version: "0.8.34",
+        version: "0.8.38",
         settings: {
           optimizer: {
             enabled: true,
@@ -20,6 +20,11 @@ export default defineConfig({
     },
   },
   networks: {
+    localhost: {
+      type: "http",
+      chainType: "l1",
+      url: "http://127.0.0.1:8545",
+    },
     hardhatMainnet: {
       type: "edr-simulated",
       chainType: "l1",

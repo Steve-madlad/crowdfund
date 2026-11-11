@@ -5,7 +5,7 @@ interface FormInputProps extends InputHTMLAttributes<HTMLInputElement | HTMLText
   type?: HTMLInputElement['type'] | 'textarea';
 }
 
-export default function FormInput({ label, type, ...props }: FormInputProps) {
+export default function FormInput({ label, ...props }: FormInputProps) {
   return (
     <label className="col w-full flex-1">
       {label && (
@@ -13,7 +13,7 @@ export default function FormInput({ label, type, ...props }: FormInputProps) {
           {label}
         </span>
       )}
-      {type === 'textarea' ? (
+      {props.type === 'textarea' ? (
         <textarea
           {...props}
           className="font-epilogue rounded-lg border border-[#3a3a43] bg-transparent py-3.75 text-sm text-white outline-none placeholder:text-[#4b5264] sm:min-w-65 sm:px-6.25"

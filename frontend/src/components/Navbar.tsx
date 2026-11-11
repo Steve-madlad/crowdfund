@@ -3,18 +3,27 @@ import { navlinks } from '@/lib/constants';
 import cn from '@/lib/utils';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import Button from './ui/Button';
+import { useConnect, useConnection, useConnectors } from 'wagmi';
 import { Icon } from './Sidebar';
+import Button from './ui/Button';
 
 export default function Navbar() {
-  const [address, setAddress] = useState<string>('0x4223');
   const [activeLink, setActiveLink] = useState<string>('/');
   const [toggleDrawer, setToggleDrawer] = useState<boolean>(false);
   const navigate = useNavigate();
 
+  const { address, isConnected } = useConnection();
+  const {
+    mutate: connectWallet,
+    isPending: connectionLoading,
+    error: connectionError,
+    isSuccess: connectionSuccess,
+  } = useConnect();
+  const connectors = useConnectors();
+
   return (
-    <div className="mb-8.75 sm:mt-6 lg:mt-2 flex flex-col-reverse justify-between gap-6 md:flex-row">
-      <div className="flex h-13 mx-4 lg:mx-0 flex-row rounded-full bg-[#1c1c24] py-2 pr-2 pl-4 md:max-w-md lg:flex-1">
+    <div className="mb-8.75 flex flex-col-reverse justify-between gap-6 sm:mt-6 md:flex-row lg:mt-2">
+      <div className="mx-4 flex h-13 flex-row rounded-full bg-[#1c1c24] py-2 pr-2 pl-4 md:max-w-md lg:mx-0 lg:flex-1">
         <input
           type="text"
           className="font-epilogue flex w-full bg-transparent text-sm font-normal text-white outline-none placeholder:text-[#4b5264]"
@@ -28,13 +37,14 @@ export default function Navbar() {
       <div className="hidden justify-end gap-4 sm:flex">
         <Button
           type="button"
-          title={address ? 'Create a campaign' : 'Connect'}
           onClick={() => {
-            if (address) navigate('create-campaign');
-            else 'connect()';
+            if (isConnected) navigate('create-campaign');
+            else connectWallet({ connector: connectors[0] });
           }}
           className={address ? 'bg-[#1dc071]' : 'bg-[#866dfd]'}
-        />
+        >
+          {isConnected ? 'Create a campaign' : 'Connect'}
+        </Button>
 
         <Link
           className="flex-center cursor size-13 overflow-hidden rounded-md bg-[#2c2f32] duration-100 active:scale-90"
@@ -50,7 +60,7 @@ export default function Navbar() {
 
       {/* Small Screen Menu */}
       <div className="flex-between relative sm:hidden!">
-        <div className='flex-between w-full relative z-20 overflow-hidden p-4 bg-[#13131a]'>
+        <div className="flex-between relative z-20 w-full overflow-hidden bg-[#13131a] p-4">
           <div className="flex-center cursor size-10 overflow-hidden rounded-md bg-[#2c2f32]">
             <Link to="/">
               <Icon className="size-13 bg-[#2c2f32]" imgUrl={logo} />
@@ -104,13 +114,15 @@ export default function Navbar() {
           <div className="flex-mx-4">
             <Button
               type="button"
-              title={address ? 'Create a campaign' : 'Connect'}
+
               onClick={() => {
-                if (address) navigate('create-campaign');
-                else 'connect()';
+                if (isConnected) navigate('create-campaign');
+                else connectWallet({ connector: connectors[0] });
               }}
               className={cn(address ? 'bg-[#1dc071]' : 'bg-[#866dfd]', 'w-full')}
-            />
+            >
+              {address ? 'Create a campaign' : 'Connect'}
+            </Button>
           </div>
         </div>
       </div>
