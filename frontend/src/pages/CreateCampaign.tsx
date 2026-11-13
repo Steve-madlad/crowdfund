@@ -1,15 +1,20 @@
 import { money } from '@/assets';
 import FormInput from '@/components/FormInput';
 import Button from '@/components/ui/Button';
-import Modal from '@/components/ui/Modal';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useEffect, useState } from 'react';
+import { dateInputToDeadline } from '@/lib/utils';
 import { parseEther } from 'viem';
 import {
-  useChainId,
   useConnect,
   useConnection,
   useConnectors,
-  usePublicClient,
   useReadContract,
   useWaitForTransactionReceipt,
   useWriteContract,
@@ -20,7 +25,6 @@ import { crowdFundingAbi } from '../generated';
 const contractAddress = import.meta.env.VITE_REACT_CONTRACT_ADDRESS;
 
 interface FormFieldsProps {
-  name: string;
   title: string;
   description: string;
   target: string;
@@ -28,44 +32,35 @@ interface FormFieldsProps {
   imageURL: string;
 }
 export default function CreateCampaign() {
-  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [form, setform] = useState<FormFieldsProps>({
-    name: '',
+  const [form, setForm] = useState<FormFieldsProps>({
     title: '',
     description: '',
     target: '',
     deadline: '',
     imageURL: '',
   });
+  const [formError, setFormError] = useState<string>();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setform({ ...form, [e.target.name]: e.target.value });
+    setForm((currentForm) => ({ ...currentForm, [e.target.name]: e.target.value }));
   };
 
   const [selectedConnector, setSelectedConnector] = useState<string>();
-  const { address, isConnected, isDisconnected } = useConnection();
+  const { address, isConnected } = useConnection();
   const {
     mutate: connectWallet,
     isPending: connectionLoading,
     error: connectionError,
-    isSuccess: connectionSuccess,
   } = useConnect();
   const connectors = useConnectors();
   const {
-    mutateAsync: createCampaign,
+    mutate: createCampaign,
     isPending: createCampaignLoading,
     error: createCampaignError,
-    isSuccess: createCampaignSuccess,
   } = useWriteContract();
 
-  console.log({createCampaignError});
-
   const {
-    data: campaignData,
-    isLoading: campaignsLoading,
-    status,
-    error: campaignsError,
     refetch: refetchCampaigns,
   } = useReadContract({
     address: contractAddress,
@@ -78,131 +73,96 @@ export default function CreateCampaign() {
     data: receipt,
     isLoading: isConfirming,
     isSuccess: isConfirmed,
-  } = useWaitForTransactionReceipt({ hash });
-
-  const chainId = useChainId();
-
-  console.log({ chainId });
-  console.log({
-    receipt,
-    transactionStatus: receipt?.status,
+    error: receiptError,
+  } = useWaitForTransactionReceipt({
+    hash,
+    query: { enabled: Boolean(hash) },
   });
-
-  const publicClient = usePublicClient();
 
   useEffect(() => {
-    if (isConfirmed) {
-      refetchCampaigns();
+    if (isConfirmed && receipt?.status === 'success') {
+      void refetchCampaigns();
     }
-  }, [isConfirmed, refetchCampaigns]);
+  }, [isConfirmed, receipt?.status, refetchCampaigns]);
 
-  console.log({
-    campaignData,
-    campaignsError,
-    status,
-    campaignsLoading,
-  });
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setFormError(undefined);
 
-  const handleSubmit = async (e?: React.SubmitEvent<HTMLFormElement>) => {
-    e?.preventDefault();
-    console.log('submitting');
-    if ((!connectionSuccess && !isConnected) || !address) {
-      console.log('submitting');
-      return setIsModalOpen(true);
+    if (!isConnected || !address) {
+      setIsModalOpen(true);
+      return;
     }
-    console.log('submitting');
-    setIsLoading(true);
-    console.log('success', form);
 
-    const [year, month, day] = form.deadline.split('-').map(Number);
-    const deadline = BigInt(Math.floor(new Date(year, month - 1, day).getTime() / 1000));
-    const hash = await createCampaign({
-      address: contractAddress,
-      abi: crowdFundingAbi,
-      functionName: 'createCampaign',
-      args: [
-        address,
-        form.name,
-        form.description,
-        parseEther(form.target),
-        deadline,
-        form.imageURL,
-      ],
-    });
-    setHash(hash);
-    console.log('Transaction hash:', hash);
+    let target: bigint;
+    let deadline: bigint;
 
-    // try {
-    //   await publicClient?.simulateContract({
-    //     account: address,
-    //     address: contractAddress,
-    //     abi: crowdFundingAbi,
-    //     functionName: 'createCampaign',
-    //     args: [
-    //       address,
-    //       form.name,
-    //       form.description,
-    //       parseEther(form.target),
-    //       deadline,
-    //       'https://picsum.photos/200/300',
-    //     ],
-    //   });
+    try {
+      target = parseEther(form.target);
+      deadline = dateInputToDeadline(form.deadline);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Enter a valid goal and end date.');
+      return;
+    }
 
-    //   console.log('Simulation successful');
-    // } catch (error) {
-    //   console.error('Simulation failed:', error);
-    // }
+    if (target <= 0n) {
+      setFormError('The campaign goal must be greater than zero.');
+      return;
+    }
+
+    if (!form.title.trim() || !form.description.trim() || !form.imageURL.trim()) {
+      setFormError('Complete all required campaign fields.');
+      return;
+    }
+
+    setHash(undefined);
+    createCampaign(
+      {
+        address: contractAddress,
+        abi: crowdFundingAbi,
+        functionName: 'createCampaign',
+        args: [
+          address,
+          form.title.trim(),
+          form.description.trim(),
+          target,
+          deadline,
+          form.imageURL.trim(),
+        ],
+      },
+      { onSuccess: setHash },
+    );
   };
 
-  // console.log({ isConnected, isDisconnected, connectionLoading });
-  // console.log({ connectionError });
-  useEffect(() => {
-    if (connectionSuccess) {
-      setIsModalOpen(false);
-      handleSubmit();
-    }
-  }, [connectionSuccess]);
-
   return (
-    <div className="col-full-center rounded-lg bg-[#1c1c24] p-4 sm:p-10">
-      {isLoading && 'Loader...'}
-      <div className="flex-center rounded-lg bg-[#3a3a43] p-4 sm:min-w-95">
-        <h1 className="font-epilogue text-lg leading-9.5 font-bold text-white sm:text-2xl">
+    <div className="col-full-center rounded-lg bg-card p-4 sm:p-10">
+      <div className="flex-center rounded-lg bg-muted p-4 sm:min-w-95">
+        <h1 className="font-epilogue text-lg leading-9.5 font-bold text-card-foreground sm:text-2xl">
           Start a Campaign
         </h1>
       </div>
       <form onSubmit={handleSubmit} className="col mt-16 w-full gap-7">
-        <div className="flex flex-col gap-5 md:flex-row">
-          <FormInput
-            name="name"
-            value={form.name}
-            onChange={(e) => handleChange(e)}
-            label="Your Name*"
-            placeholder="John Doe"
-            required
-          />
-          <FormInput
-            name="title"
-            value={form.title}
-            onChange={(e) => handleChange(e)}
-            label="Campaign Title*"
-            placeholder="Write a title"
-            required
-          />
-        </div>
+        <FormInput
+          name="title"
+          value={form.title}
+          onChange={handleChange}
+          label="Campaign Title*"
+          placeholder="Write a title"
+          required
+        />
         <FormInput
           name="description"
           value={form.description}
-          onChange={(e) => handleChange(e)}
+          onChange={handleChange}
           label="Story*"
           type="textarea"
           placeholder="I am fundraising because..."
           required
         />
 
-        <div className="just-start h-30 w-full items-center rounded-lg bg-[#8c6dfd] p-4">
+        <div className="just-start min-h-30 w-full items-center rounded-lg bg-accent p-4">
           <img src={money} alt="money" className="size-10 object-contain" />
-          <h4 className="font-epilogue text-6.25 ml-5 font-bold text-white">
+          <h4 className="font-epilogue text-6.25 ml-5 font-bold text-accent-foreground">
             You will get 100% of the raised amount!
           </h4>
         </div>
@@ -211,17 +171,19 @@ export default function CreateCampaign() {
           <FormInput
             name="target"
             value={form.target}
-            onChange={(e) => handleChange(e)}
-            label="Goal*"
-            placeholder="John Doe"
+            onChange={handleChange}
+            label="Goal (ETH)*"
+            placeholder="0.5"
             type="number"
+            min="0"
+            step="any"
             required
           />
 
           <FormInput
             name="deadline"
-            value={String(form.deadline)}
-            onChange={(e) => handleChange(e)}
+            value={form.deadline}
+            onChange={handleChange}
             label="End Date*"
             type="date"
             required
@@ -230,56 +192,104 @@ export default function CreateCampaign() {
           <FormInput
             name="imageURL"
             value={form.imageURL}
-            onChange={(e) => handleChange(e)}
+            onChange={handleChange}
             label="Image URL*"
-            placeholder="https://example.com"
+            placeholder="https://example.com/image.jpg"
             type="url"
             required
           />
         </div>
 
+        {formError && (
+          <p role="alert" className="text-sm text-destructive">
+            {formError}
+          </p>
+        )}
+        {createCampaignError && (
+          <p role="alert" className="text-sm text-destructive">
+            Campaign creation failed: {createCampaignError.message}
+          </p>
+        )}
+        {receiptError && (
+          <p role="alert" className="text-sm text-destructive">
+            Unable to confirm the transaction: {receiptError.message}
+          </p>
+        )}
+        {isConfirmed && receipt?.status === 'success' && (
+          <p role="status" className="text-sm text-success" aria-live="polite">
+            Campaign created successfully.
+          </p>
+        )}
+        {isConfirmed && receipt?.status === 'reverted' && (
+          <p role="alert" className="text-sm text-destructive">
+            The campaign transaction reverted.
+          </p>
+        )}
+
         <div className="just-start mt-10 items-center">
           <Button
-            disabled={createCampaignLoading}
-            className="flex-center w-full gap-3 bg-[#1dc071] disabled:cursor-default disabled:grayscale-60"
+            disabled={createCampaignLoading || isConfirming}
+            className="flex-center w-full gap-3 bg-success text-success-foreground disabled:grayscale-60"
+            aria-busy={createCampaignLoading || isConfirming}
             type="submit"
           >
-            Submit new campaign
-            {createCampaignLoading && (
-              <img alt="loader" className="grayscale" width={35} src={loader} />
+            {createCampaignLoading
+              ? 'Waiting for wallet...'
+              : isConfirming
+                ? 'Confirming transaction...'
+                : 'Submit new campaign'}
+            {(createCampaignLoading || isConfirming) && (
+              <img alt="" aria-hidden="true" className="grayscale" width={35} src={loader} />
             )}
           </Button>
         </div>
       </form>
 
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        ariaLabel="Start a Campaign"
-        contentStyle={{ maxWidth: '64rem' }}
-      >
-        <div>
-          <h1>Connect your wallet</h1>
-          <div className="flex gap-5">
-            {connectors.map((connector) => (
-              <Button
-                key={connector.uid}
-                disabled={connectionLoading}
-                className="flex-center gap-2 rounded-md bg-white px-5 text-black"
-                onClick={() => {
-                  setSelectedConnector(connector.name);
-                  connectWallet({ connector });
-                }}
-              >
-                Connect {connector.name}
-                {connectionLoading && connector.name === selectedConnector && (
-                  <img alt="loader" width={35} src={loader} />
-                )}
-              </Button>
-            ))}
-          </div>
-        </div>
-      </Modal>
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Connect your wallet</DialogTitle>
+            <DialogDescription>
+              Choose a wallet to connect before creating your campaign.
+            </DialogDescription>
+          </DialogHeader>
+          {connectors.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {connectors.map((connector) => (
+                <Button
+                  key={connector.uid}
+                  disabled={connectionLoading}
+                  aria-busy={connectionLoading && connector.name === selectedConnector}
+                  className="min-h-12 justify-start border border-border bg-secondary text-secondary-foreground hover:bg-muted"
+                  onClick={() => {
+                    setSelectedConnector(connector.name);
+                    connectWallet(
+                      { connector },
+                      { onSuccess: () => setIsModalOpen(false) },
+                    );
+                  }}
+                >
+                  {connectionLoading && connector.name === selectedConnector
+                    ? `Connecting to ${connector.name}...`
+                    : `Connect with ${connector.name}`}
+                  {connectionLoading && connector.name === selectedConnector && (
+                    <img alt="" aria-hidden="true" className="ml-auto" width={28} src={loader} />
+                  )}
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <p role="status" className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">
+              No wallet connectors are available in this browser.
+            </p>
+          )}
+          {connectionError && (
+            <p role="alert" className="text-sm text-destructive">
+              Wallet connection failed: {connectionError.message}
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

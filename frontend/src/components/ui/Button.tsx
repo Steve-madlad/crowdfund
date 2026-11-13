@@ -1,16 +1,19 @@
 import cn from '@/lib/utils';
-import React from 'react';
+import type { ButtonHTMLAttributes } from 'react';
 
 export default function Button({
   children,
+  className,
+  type = 'button',
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+}: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
+      type={type}
       {...props}
       className={cn(
-        'font-epilogue cursor min-h-13 rounded-lg px-4 text-base leading-6.5 font-semibold text-white',
-        props.className,
+        'font-epilogue min-h-13 cursor rounded-lg px-4 text-base leading-6.5 font-semibold text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60',
+        className,
       )}
     >
       {children}

@@ -9,7 +9,7 @@ import CreateCampaign from './pages/CreateCampaign';
 
 function App() {
   return (
-    <div className="sm:-8 relative flex min-h-screen bg-[#13131a] lg:p-4">
+    <div className="sm:-8 relative flex min-h-screen bg-background text-foreground lg:p-4">
       <div className="relative mr-10 ml-4 hidden sm:flex lg:ml-0">
         <Sidebar />
       </div>
