@@ -5,24 +5,29 @@ import { formatEther } from 'viem';
 import { useReadContract } from 'wagmi';
 import { crowdFundingAbi } from '../generated';
 
+const contractAddress = import.meta.env.VITE_REACT_CONTRACT_ADDRESS;
+
 export default function Home() {
   const { data: campaignData } = useReadContract({
-    address: '0x2279b7a0a67db372996a5fab50d91eaa73d2ebe6',
+    address: contractAddress,
     abi: crowdFundingAbi,
     functionName: 'getCampaigns',
   });
 
+  console.log({ campaignData });
+
   const { data: campaignCountData } = useReadContract({
-    address: '0x2279b7a0a67db372996a5fab50d91eaa73d2ebe6',
+    address: contractAddress,
     abi: crowdFundingAbi,
     functionName: 'numberOfCampaigns',
   });
 
   const navigate = useNavigate();
   type Campaign = NonNullable<typeof campaignData>[number];
-  const handleNavigate = (campaign: Campaign) => {
-    navigate(`/campaign-details/${campaign.title}, state: {campaign})`);
+  const handleNavigate = (campaign: Campaign, id: number) => {
+    navigate(`/campaign-details/${campaign.title}`, { state: { ...campaign, id } });
   };
+
   return (
     <div>
       {campaignCountData && campaignCountData > 0 && (
@@ -34,7 +39,7 @@ export default function Home() {
         {campaignData?.map((campaign, index) => {
           return (
             <div
-              onClick={() => handleNavigate(campaign)}
+              onClick={() => handleNavigate(campaign, index)}
               key={index}
               className="pointer w-full rounded-xl bg-[#1c1c24] sm:w-[288px]"
             >
@@ -82,14 +87,14 @@ export default function Home() {
                 </div>
 
                 <div className="align-center mt-5 gap-3">
-                  <div className="flex-center overflow-hidden size-7.5 rounded-full">
+                  <div className="flex-center size-7.5 overflow-hidden rounded-full">
                     <img
                       src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${campaign.owner}`}
                       alt="User"
                       className="object-contain"
                     />
                   </div>
-                  <p className="font-epilogue text-[#808191] flex-1 text-xs font-normal truncate">
+                  <p className="font-epilogue flex-1 truncate text-xs font-normal text-[#808191]">
                     <span className="text-[#b2b2bd]">{campaign.owner}</span>
                   </p>
                 </div>

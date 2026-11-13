@@ -14,10 +14,10 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi';
-import { crowdFundingAbi } from '../generated';
 import loader from '../assets/loader.svg';
+import { crowdFundingAbi } from '../generated';
 
-const contractAddress = '0x2279b7a0a67db372996a5fab50d91eaa73d2ebe6'
+const contractAddress = import.meta.env.VITE_REACT_CONTRACT_ADDRESS;
 
 interface FormFieldsProps {
   name: string;
@@ -58,6 +58,8 @@ export default function CreateCampaign() {
     error: createCampaignError,
     isSuccess: createCampaignSuccess,
   } = useWriteContract();
+
+  console.log({createCampaignError});
 
   const {
     data: campaignData,
@@ -124,7 +126,7 @@ export default function CreateCampaign() {
         form.description,
         parseEther(form.target),
         deadline,
-        'https://picsum.photos/200/300',
+        form.imageURL,
       ],
     });
     setHash(hash);

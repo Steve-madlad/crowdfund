@@ -13,6 +13,7 @@ export default function Navbar() {
   const navigate = useNavigate();
 
   const { address, isConnected } = useConnection();
+  console.log(isConnected);
   const {
     mutate: connectWallet,
     isPending: connectionLoading,
@@ -51,7 +52,7 @@ export default function Navbar() {
           to="/profile"
         >
           <img
-            src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${address}`}
+            src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${isConnected ? address : 'user'}&backgroundColor=${isConnected ? '4acd8d' : '866dfd'}`}
             alt="avatar"
             className="object-contain"
           />
@@ -72,7 +73,7 @@ export default function Navbar() {
               to="/profile"
             >
               <img
-                src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${address}`}
+                src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${isConnected ? address : 'user'}&backgroundColor=${isConnected ? '4acd8d' : '866dfd'}`}
                 alt="avatar"
                 className="object-contain"
               />
@@ -90,7 +91,7 @@ export default function Navbar() {
             {navlinks.map((link) => (
               <li
                 className={`flex ${activeLink === link.name && 'bg-[#3a3a43]'} cursor p-4`}
-                key="link.name"
+                key={link.name}
                 onClick={() => {
                   setToggleDrawer(false);
                   setActiveLink(link.name);
