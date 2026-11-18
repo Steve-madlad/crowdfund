@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { calculateBarPercentage, dateInputToDeadline, daysLeft, formatEth } from './utils.ts';
+import { MAX_IMAGE_URL_BYTES, normalizeHttpsImageUrl } from './imageUrls.ts';
 
 describe('formatEth', () => {
   it('formats wei as ETH without floating-point conversion', () => {
@@ -53,5 +54,27 @@ describe('calculateBarPercentage', () => {
     assert.equal(calculateBarPercentage(10n, 5n), 50);
     assert.equal(calculateBarPercentage(100n, 99n), 99);
     assert.equal(calculateBarPercentage(10n, 11n), 100);
+  });
+});
+
+describe('normalizeHttpsImageUrl', () => {
+  it('normalizes valid HTTPS image URLs', () => {
+    assert.equal(
+      normalizeHttpsImageUrl('  HTTPS://example.com/campaign image.png  '),
+      'https://example.com/campaign%20image.png',
+    );
+  });
+
+  it('rejects insecure, malformed, credentialed, and oversized URLs', () => {
+    assert.throws(() => normalizeHttpsImageUrl('http://example.com/image.png'), RangeError);
+    assert.throws(() => normalizeHttpsImageUrl('not a URL'), RangeError);
+    assert.throws(
+      () => normalizeHttpsImageUrl('https://user:pass@example.com/image.png'),
+      RangeError,
+    );
+    assert.throws(
+      () => normalizeHttpsImageUrl(`https://example.com/${'a'.repeat(MAX_IMAGE_URL_BYTES)}`),
+      RangeError,
+    );
   });
 });

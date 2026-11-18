@@ -1,10 +1,10 @@
-import type { HTMLAttributes } from 'react';
 import cn from '@/lib/utils';
+import type { HTMLAttributes } from 'react';
 
 export function Skeleton({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('animate-pulse rounded-md bg-muted motion-reduce:animate-none', className)}
+      className={cn('bg-muted animate-pulse rounded-md motion-reduce:animate-none', className)}
       {...props}
       aria-hidden="true"
     />
@@ -22,10 +22,10 @@ export function CampaignGridSkeleton({ count = 6 }: { count?: number }) {
       {Array.from({ length: count }, (_, index) => (
         <div
           key={index}
-          className="min-w-0 w-full overflow-hidden rounded-xl border border-border bg-card"
+          className="border-border bg-card w-full min-w-0 overflow-hidden rounded-xl border"
           aria-hidden="true"
         >
-          <Skeleton className="h-39.5 rounded-none" />
+          <Skeleton className="aspect-16/10 rounded-none" />
           <div className="col gap-3 p-4">
             <Skeleton className="h-4 w-24" />
             <Skeleton className="h-5 w-3/4" />

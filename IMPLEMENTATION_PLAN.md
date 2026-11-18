@@ -9,7 +9,7 @@ This document records the approved scope and a staged approach to stabilize and 
 - **Approved:** All implementation phases and proposed UI/tooling dependencies.
 - **Approved:** Keep category filtering and pagination client-side for the first pass; implement campaign categories and use them for filtering.
 - **Approved:** Support multiple externally hosted image URLs; defer IPFS for the first release.
-- **Approved:** Scope escrow/withdrawals as a separate fund-management design that considers refunds.
+- **Approved:** Escrowed contributions, rather than immediate owner payouts, are the target fund-management model. Phase 6 will define withdrawal and refund rules before implementing and deploying that contract change.
 - **Approved:** Navbar search should instantly filter campaigns on the home page.
 - **Added to approved UI scope:** Define reusable colors as CSS variables exposed through Tailwind utilities; replace the custom modal with a shadcn/ui Dialog, including a polished wallet/connector-selection experience.
 - **IPFS recommendation:** Do not require IPFS, a paid plan, a credit card, or an upload backend for the first release. Use verified external HTTPS image URLs and store URL references on-chain if multi-image support is implemented.
@@ -56,7 +56,7 @@ This document records the approved scope and a staged approach to stabilize and 
 6. **Home and navbar controls are partly decorative.** Search has no state or filtering behavior; home has no loading, error, or true empty state; pagination and filters are absent.
 7. **Profile is a placeholder, and there is no wallet-disconnect flow.** The current navbar has an avatar link, and the sidebar's theme icon does not change the theme.
 8. **The current Solidity read returns every campaign and all donor arrays at once.** Client-only pagination improves usability but does not bound RPC response size as the campaign count grows.
-9. **Donations are transferred directly to the campaign owner in the donation transaction.** This is an important existing product/contract behavior to retain or explicitly reconsider; it is not an escrow/withdrawal model.
+9. **The current contract transfers donations directly to the campaign owner.** The approved target is escrowed contributions; keep the prototype's current behavior explicit in the UI until Phase 6 implements and deploys the reviewed escrow/withdrawal/refund model.
 
 ## Recommended implementation phases
 
@@ -85,6 +85,7 @@ Each phase should preserve existing user-facing behavior unless the change is ex
 - Provide clear status feedback for wallet connection, contract reads, submissions, transaction confirmations, image loading, and empty search/filter results.
 - Define the repeated palette as semantic CSS custom properties (for example background/foreground, card, primary, muted, border, ring, success, warning, and destructive) and expose them through Tailwind 4 `@theme` tokens. Provide dark and light values so components use semantic classes such as `bg-background` and `text-foreground`, not duplicated hex values.
 - Improve keyboard focus, button/input labels, contrast, semantic landmarks, and reduced-motion behavior while establishing shared spacing, typography, color, and responsive layout tokens.
+- Prefer shadcn/ui components (or project-styled shadcn wrappers) for interactive controls: `Input`, `Textarea`, `Select`, `Button`, and other primitives where they improve consistency and accessibility. Apply this to navbar search, the home-page category/status/sort filters, campaign creation fields, donation inputs, and profile controls; do not leave the home filters out of the shadcn migration.
 - Replace the existing custom modal implementation with a project-styled shadcn/ui Dialog component. Use it for wallet selection and any other modal flows, with correct focus trapping/restoration, Escape/outside-close behavior, keyboard operation, and mobile sizing.
 - Keep error messages actionable and avoid presenting failed reads or transactions as successful empty data.
 
@@ -102,21 +103,38 @@ Each phase should preserve existing user-facing behavior unless the change is ex
 
 ### Phase 3 — Home discovery and campaign cards
 
-- Implement navbar search as a controlled, accessible search that instantly filters the home campaign list by title and description; combine it with category selection and show a useful no-results state.
+- Implement navbar search as a controlled, accessible shadcn/ui `Input` that instantly filters the home campaign list by title and description; combine it with shadcn/ui `Select` controls for category, campaign status, and sorting, and show a useful no-results state.
 - Improve cards with a consistent image aspect ratio/fallback, creator DiceBear identity, ETH-raised/goal values, progress, deadline/ended status, and clear hover/focus/tap affordances.
 - Add client-side filters and sorting for active/ended/goal reached, title/description search, category, newest/oldest, and funding progress. First-pass filtering and pagination remain client-side; no pagination contract change is included in this phase.
-- Category filtering is client-side as approved, but the current contract has no category field. Before implementing category labels, decide whether to derive categories deterministically from existing title/description data (no contract change, but less precise) or add a category field to the contract (durable, but requires a redeployment). Do not use local-only category assignments that differ between users.
+- Category filtering is client-side as approved, but the current contract has no category field. Use deterministic keyword inference from campaign title/description with an `Other` fallback; do not add a contract field or make per-user assignments in this phase. This is a shared heuristic rather than creator-selected metadata; revisit an on-chain category field only if campaigns later need durable creator-defined labels.
 - Add responsive pagination and empty states. Client-side pagination does not bound the current `getCampaigns()` RPC response; revisit bounded reads/indexing if campaign volume grows.
 - Use an ID-based details link rather than click handlers on non-semantic containers.
+
+### Phase 3 implementation status (2026-11-14)
+
+- Connected the navbar search input to the home listing through URL query state. Search is immediate, matches campaign title, description, and owner, and resets pagination when changed.
+- Added client-side category and status filters plus newest, oldest, title, and goal-progress sorting. Categories are inferred deterministically from shared campaign text with an `Other` fallback; this requires no contract or deployment change.
+- Added nine-campaign pagination with URL-backed page state, result counts, clear-filter/no-match states, and appropriate handling when filters reduce results or the requested page is out of range.
+- Redesigned campaign cards with consistent 16:10 images and fallback, inferred category badge, creator DiceBear avatar fallback, formatted raised/goal amounts, capped progress, goal-reached badge, deadline status, and keyboard/hover affordances.
+- Added 16px horizontal page-content padding on small devices while keeping the campaign grid at one column on phones, two at `sm`, three at `lg`, and four at `2xl`.
+- Added unit coverage for deterministic category inference, combined search/category/status filtering, sorting, pagination bounds, and empty pagination. `bun run lint` passes; `bun run test:unit` passes (11 tests); `bunx vite build` succeeds. The full `bun run build` remains blocked only by the pre-existing unused React import in untouched `frontend/src/pages/Profile.tsx`.
+- Browser checks used the actual local contract response, which currently has zero campaigns; the real empty state and navbar search URL behavior were verified at phone and desktop widths. Temporarily simulated 11 campaigns only for visual/interaction checks, verified the nine-plus-two pagination split, responsive card grid, category filter and no-results presentation, then removed all simulated data from the app. No campaigns were created on-chain.
+- Migrated navbar search to the shared shadcn-style `Input` and Home category, status, and sort filters to accessible Radix-backed shadcn-style `Select` controls.
+- **Phase 3 status:** Complete, including the shadcn/ui control migration.
 
 ### Phase 4 — Campaign detail and creation redesign
 
 - Redesign details into a responsive campaign/story and donation layout with a prominent hero image, creator identity, funding progress, amount raised/goal, deadline state, donor list, and share/explorer affordances.
 - Connect the progress bar to correctly formatted contract values and cap its visual width at 100% while showing the true amount if overfunded.
 - Trigger a restrained, accessible confetti celebration only when the goal is reached; avoid repeatedly firing it on rerender or when merely loading an already-funded campaign.
-- Rebuild the campaign form as a clear responsive multi-section flow with useful help text, validation, disabled/pending states, field-level errors, preview, and transaction confirmation.
+- Rebuild the campaign form as a clear responsive multi-section flow using shared shadcn/ui `Input`, `Textarea`, `Select`, and `Button` components where appropriate, with useful help text, validation, disabled/pending states, field-level errors, preview, and transaction confirmation.
 - Use the existing `checkIfImage` utility (or replace it with an async, race-safe validator) to verify image URLs. Show a responsive preview with a fallback and allow the user to correct failed URLs before submitting.
 - Support multiple verified HTTPS image URLs, with preview, ordering, removal, validation, and fallback for each image. If image URLs are persisted as a Solidity string array, account for increased transaction/storage costs and require a new deployment; do not store image file bytes on-chain.
+- **Phase 4 status (2026-11-14):** Complete. Rebuilt campaign creation as a responsive multi-section form using shared `Input`/`Textarea`/`Button` components, with asynchronous race-safe HTTPS image checks, previews, ordering, removal, a five-image limit, a 512-byte URL limit, and a live network-fee estimate before wallet approval.
+- Reworked campaign details into a responsive story, gallery, supporter, and contribution layout. Added DiceBear donor identities, progress and campaign status, share/contract-explorer actions, donation cutoff states, and reduced-motion-aware confetti only on a below-goal to goal-reached transition.
+- Extended the contract with bounded multi-image URL storage while preserving the original first-image getter and storing only supplemental URLs beyond the cover. Added checks for non-empty goal/owner/story, unique HTTPS URLs, image limits, invalid campaign IDs, ended campaigns, and donations after goal completion. This deployment still transfers donations immediately; the approved escrow/refund model remains for Phase 6.
+- Compiled and locally redeployed the contract, regenerated the Wagmi ABI, and updated only `VITE_REACT_CONTRACT_ADDRESS` in the ignored frontend env file. The previous Home failure was caused by pointing the refreshed ABI at the older deployment; that address reproduces the reported unsafe-integer decode error, while the updated deployment returns the expected zero-campaign result. No campaigns were created.
+- Validation: frontend lint passes; 13 frontend unit tests pass; all 8 Hardhat tests pass; `bunx vite build` succeeds. `bun run build` remains blocked only by the pre-existing unused React import in untouched `frontend/src/pages/Profile.tsx`. At 390px, the create form, five-image cap, HTTPS rejection, and real empty Home state were checked in the browser.
 
 ### Phase 5 — Wallet profile, disconnect, theme, and feedback
 
@@ -127,10 +145,10 @@ Each phase should preserve existing user-facing behavior unless the change is ex
 - Add persisted dark/light theme selection using the shared CSS variables. Apply it consistently to all pages, including mobile navigation, forms, skeletons, empty states, charts, and dialogs. Respect system preference on first visit and avoid theme flashes where feasible.
 - Add toast notifications for concise transient outcomes, while keeping important errors and transaction states visible in the page for assistive technology and users who miss a toast.
 
-### Phase 6 — Escrow/refund design, contract/indexing, and production hardening
+### Phase 6 — Escrow/refund implementation, contract/indexing, and production hardening
 
-- Separately design the escrow/withdrawal and refund rules before writing contract code: when funds are held or withdrawable, who may withdraw, whether goal/deadline conditions apply, how partial/full refunds work, how donor balances are accounted for, and what happens on cancellation or failed goals.
-- Make this a documented economic/security decision with explicit user-facing terms and dedicated tests. The approved scope is to design this behavior; implementation and deployment should follow only after those rules are reviewed.
+- Implement the approved direction of holding contributions in escrow instead of transferring them immediately to the owner. Before contract changes, define when funds become withdrawable, who may withdraw, whether goal/deadline conditions apply, how partial/full refunds work, how donor balances are accounted for, and what happens on cancellation or failed goals.
+- Document and review these economic/security rules and user-facing terms before implementation. Then add dedicated contract tests and deploy a new contract; do not imply that the current deployment provides escrow or refunds.
 - Keep contract transfers pull-based where appropriate, define state/accounting invariants, and assess reentrancy, failure handling, and gas/storage growth as part of contract design and review.
 
 - Add Crowdfunding-specific tests for creation, deadline validation, donation accounting, transfers, donor history, invalid IDs, and any newly approved contract behavior.
@@ -141,11 +159,11 @@ Each phase should preserve existing user-facing behavior unless the change is ex
 
 ## Library and tooling recommendations
 
-These are approved recommendations. Install only the dependencies needed by the active phase; Phase 2 added `@radix-ui/react-dialog` and `lucide-react`.
+These are approved recommendations. Use shadcn/ui components as the preferred control and primitive library across the navbar, home filters, forms, dialogs, and profile where appropriate. Verify the Tailwind 4 setup and add/generate only the components needed by the active phase; Phase 2 added `@radix-ui/react-dialog` and `lucide-react`.
 
 | Need | Recommendation | Reason / boundary |
 |---|---|---|
-| UI primitives | **shadcn/ui** components selected as needed, using its Radix-based accessible primitives and Tailwind styling | Fits the existing Tailwind 4 approach without replacing the whole app with a heavyweight design system. Verify the generated Tailwind 4 setup before adding components. |
+| UI primitives and inputs | **shadcn/ui** components selected as needed, using accessible Radix-based primitives and Tailwind styling | Preferred for inputs, textareas, selects (including all Home filters), buttons, and other interactive UI where appropriate. Fits the existing Tailwind 4 approach without replacing the whole app with a heavyweight design system; verify generated Tailwind 4 setup before adding components. |
 | Modal/dialog | **shadcn/ui-style Dialog** backed by Radix, replacing the custom `Modal` component | The shared dialog wrapper is implemented with Radix accessibility behavior and project theme tokens; the full connector-picker polish remains in Phase 5. |
 | Theme colors | **CSS custom properties + Tailwind 4 `@theme inline` tokens** | Implemented in Phase 2 to support semantic colors and dark/light values without repeated palette literals. |
 | Toasts | **Sonner** | Small, straightforward toast API; use alongside persistent inline form/transaction errors, not instead of them. |
@@ -167,11 +185,11 @@ The current campaign struct supports one image URL and has no category or profil
 2. Add bounded campaign reads such as a start/limit getter, retaining existing getters if compatibility is useful. Treat zero limit, out-of-range start, and maximum batch size explicitly.
 3. Category filtering and pagination are approved as client-side first-pass features; do not add Solidity fields or pagination methods for them in that phase. Category metadata still needs a durable source.
 4. Multi-image support is approved. With the no-IPFS recommendation, store only validated image URL strings on-chain if multiple images are implemented. Bound URL count and length, surface gas estimates, and deploy a new contract; do not put image bytes into Solidity storage.
-5. Escrow, withdrawals, and refunds require a separate reviewed contract design and a new deployment; they are not a small extension to the current immediate-transfer model.
+5. Escrow is the approved target instead of immediate owner payouts. Withdrawal/refund rules need a separate reviewed design and new deployment; the current contract is not escrow-based.
 
 ### Bigger product/economic decisions — defer unless explicitly requested
 
-- **Escrow and withdrawals:** Current donations are paid immediately to the owner. The separate escrow/withdrawal/refund design is approved for scoping, but changing custody and user expectations requires explicit rules, careful contract design, tests, and a new deployment.
+- **Escrow and withdrawals:** The approved target is to hold donations in escrow rather than pay the owner immediately. The exact withdrawal/refund rules require explicit design, review, contract tests, and a new deployment; the present prototype still pays immediately.
 - **Refunds/campaign cancellation:** Requires clear eligibility, deadline, goal, and accounting rules, not just a UI control.
 - **On-chain identity/profile metadata:** Storing descriptions or profile data on-chain adds permanent cost; consider off-chain/IPFS metadata with content-addressed references instead.
 - **Image uploads/IPFS:** Multi-image URL support is approved; IPFS uploads are deferred. Verify URLs at creation time, while making clear that verification does not guarantee future availability.
@@ -206,13 +224,14 @@ The installed frontend already depends on **Wagmi v3**, and the contract workspa
 
 ## Decisions for review
 
-The phases, dependencies, client-side first pass for categories/pagination, multi-image scope, escrow/refund design scope, instant home filtering, and the no-IPFS URL-storage recommendation are recorded as approved scope. Before Phase 3 implements category labels, choose deterministic inference from title/description or an on-chain category field, and review the gas implications of storing multiple URL strings on-chain before Phase 4 changes the contract.
+The phases, dependencies, client-side first pass for categories/pagination, multi-image scope, escrow/refund design scope, instant home filtering, and the no-IPFS URL-storage recommendation are recorded as approved scope. Phase 3 uses deterministic category inference from title/description without contract changes. Review the gas implications of storing multiple URL strings on-chain before Phase 4 changes the contract.
 
 ## Definition of done
 
 - ETH values and deadlines are correct, consistent, and covered by focused tests.
 - All requested flows have explicit loading, error, success, and empty states where applicable.
 - Search, filtering, sorting, and pagination work with stable campaign IDs and understandable result counts.
+- Navbar search, Home category/status/sort filters, forms, and other appropriate controls use consistent accessible shadcn/ui components.
 - Campaign creation and detail pages are polished, responsive, accessible, and correctly reflect wallet/transaction state.
 - Profile, disconnect, and theme controls work at mobile and desktop sizes and persist where appropriate.
 - Repeated colors come from semantic CSS variables mapped into Tailwind; theme choices remain consistent in the shadcn/ui dialogs and connector picker.

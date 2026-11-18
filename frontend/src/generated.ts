@@ -11,6 +11,20 @@ import {
 export const crowdFundingAbi = [
   {
     type: 'function',
+    inputs: [],
+    name: 'MAX_CAMPAIGN_IMAGES',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'MAX_IMAGE_URL_BYTES',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     name: 'campaigns',
     outputs: [
@@ -32,7 +46,7 @@ export const crowdFundingAbi = [
       { name: '_description', internalType: 'string', type: 'string' },
       { name: '_target', internalType: 'uint256', type: 'uint256' },
       { name: '_deadline', internalType: 'uint256', type: 'uint256' },
-      { name: '_image', internalType: 'string', type: 'string' },
+      { name: '_images', internalType: 'string[]', type: 'string[]' },
     ],
     name: 'createCampaign',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
@@ -44,6 +58,13 @@ export const crowdFundingAbi = [
     name: 'donateToCampaign',
     outputs: [],
     stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '_id', internalType: 'uint256', type: 'uint256' }],
+    name: 'getCampaignImages',
+    outputs: [{ name: '', internalType: 'string[]', type: 'string[]' }],
+    stateMutability: 'view',
   },
   {
     type: 'function',
@@ -62,6 +83,11 @@ export const crowdFundingAbi = [
           { name: 'deadline', internalType: 'uint256', type: 'uint256' },
           { name: 'amountCollected', internalType: 'uint256', type: 'uint256' },
           { name: 'image', internalType: 'string', type: 'string' },
+          {
+            name: 'additionalImages',
+            internalType: 'string[]',
+            type: 'string[]',
+          },
           { name: 'donators', internalType: 'address[]', type: 'address[]' },
           { name: 'donations', internalType: 'uint256[]', type: 'uint256[]' },
         ],
@@ -100,11 +126,38 @@ export const useReadCrowdFunding = /*#__PURE__*/ createUseReadContract({
 })
 
 /**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"MAX_CAMPAIGN_IMAGES"`
+ */
+export const useReadCrowdFundingMaxCampaignImages =
+  /*#__PURE__*/ createUseReadContract({
+    abi: crowdFundingAbi,
+    functionName: 'MAX_CAMPAIGN_IMAGES',
+  })
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"MAX_IMAGE_URL_BYTES"`
+ */
+export const useReadCrowdFundingMaxImageUrlBytes =
+  /*#__PURE__*/ createUseReadContract({
+    abi: crowdFundingAbi,
+    functionName: 'MAX_IMAGE_URL_BYTES',
+  })
+
+/**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"campaigns"`
  */
 export const useReadCrowdFundingCampaigns = /*#__PURE__*/ createUseReadContract(
   { abi: crowdFundingAbi, functionName: 'campaigns' },
 )
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"getCampaignImages"`
+ */
+export const useReadCrowdFundingGetCampaignImages =
+  /*#__PURE__*/ createUseReadContract({
+    abi: crowdFundingAbi,
+    functionName: 'getCampaignImages',
+  })
 
 /**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"getCampaigns"`

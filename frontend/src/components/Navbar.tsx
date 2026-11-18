@@ -1,43 +1,62 @@
 import { logo, menu, search } from '@/assets';
+import AccountMenu from '@/components/AccountMenu';
+import WalletConnectDialog from '@/components/WalletConnectDialog';
 import { navlinks } from '@/lib/constants';
 import cn from '@/lib/utils';
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useConnect, useConnection, useConnectors } from 'wagmi';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useConnection } from 'wagmi';
 import { Icon } from './Sidebar';
 import Button from './ui/Button';
+import { Input } from './ui/Input';
 
 export default function Navbar() {
   const [activeLink, setActiveLink] = useState<string>('/');
   const [toggleDrawer, setToggleDrawer] = useState<boolean>(false);
+  const [walletDialogOpen, setWalletDialogOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const { address, isConnected } = useConnection();
-  const {
-    mutate: connectWallet,
-    isPending: connectionLoading,
-    error: connectionError,
-  } = useConnect();
-  const connectors = useConnectors();
+  const { isConnected, isConnecting } = useConnection();
   const handleCreateClick = () => {
     if (isConnected) {
       navigate('/create-campaign');
-    } else if (connectors[0]) {
-      connectWallet({ connector: connectors[0] });
+    } else {
+      setToggleDrawer(false);
+      setWalletDialogOpen(true);
+    }
+  };
+  const searchValue = searchParams.get('q') ?? '';
+  const handleSearchChange = (value: string) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (value) nextParams.set('q', value);
+    else nextParams.delete('q');
+    nextParams.delete('page');
+
+    if (location.pathname === '/') {
+      setSearchParams(nextParams, { replace: true });
+    } else {
+      navigate(
+        { pathname: '/', search: nextParams.toString() ? `?${nextParams.toString()}` : '' },
+        { replace: true },
+      );
     }
   };
 
   return (
     <>
       <div className="mb-8.75 flex flex-col-reverse justify-between gap-6 sm:mt-6 md:flex-row lg:mt-2">
-        <div className="mx-4 flex h-13 flex-row rounded-full bg-card py-2 pr-2 pl-4 md:max-w-md lg:mx-0 lg:flex-1">
-          <input
-            type="text"
+        <div className="mx-4 flex h-13 flex-row rounded-full border border-border bg-card py-1.5 pr-2 pl-4 md:max-w-md lg:mx-0 lg:flex-1">
+          <Input
+            type="search"
             aria-label="Search campaigns"
-            className="font-epilogue flex w-full bg-transparent text-sm font-normal text-foreground outline-none placeholder:text-placeholder"
+            className="h-full flex-1 rounded-full border-0 bg-transparent px-0 py-0 font-epilogue text-sm font-normal shadow-none focus-visible:border-0 focus-visible:ring-0"
             placeholder="Search for campaigns"
+            value={searchValue}
+            onChange={(event) => handleSearchChange(event.target.value)}
           />
-          <div className="flex-center curosr h-full w-18 rounded-full bg-primary">
+          <div aria-hidden="true" className="flex-center h-full w-14 rounded-full bg-primary">
             <img src={search} alt="" aria-hidden="true" className="size-3.75 object-contain" />
           </div>
         </div>
@@ -46,31 +65,25 @@ export default function Navbar() {
           <Button
             type="button"
             onClick={handleCreateClick}
-            disabled={connectionLoading || (!isConnected && connectors.length === 0)}
-            aria-busy={connectionLoading}
+            disabled={isConnecting}
+            aria-busy={isConnecting}
             className={cn(
               isConnected
                 ? 'bg-success text-success-foreground'
                 : 'bg-brand-purple text-brand-purple-foreground',
             )}
           >
-            {connectionLoading
+            {isConnecting
               ? 'Connecting...'
               : isConnected
                 ? 'Create a campaign'
                 : 'Connect'}
           </Button>
 
-          <Link
-            className="flex-center cursor size-13 overflow-hidden rounded-md bg-secondary duration-100 active:scale-90"
-            to="/profile"
-          >
-            <img
-              src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${isConnected ? address : 'user'}&backgroundColor=${isConnected ? '4acd8d' : '866dfd'}`}
-              alt="Profile"
-              className="object-contain"
-            />
-          </Link>
+          <AccountMenu
+            onRequestConnect={() => setWalletDialogOpen(true)}
+            className="size-13 rounded-md"
+          />
         </div>
 
         {/* Small Screen Menu */}
@@ -82,16 +95,10 @@ export default function Navbar() {
               </Link>
             </div>
             <div className="flex-center gap-5">
-              <Link
-                className="flex-center cursor size-9.5 overflow-hidden rounded-md bg-secondary"
-                to="/profile"
-              >
-                <img
-                  src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${isConnected ? address : 'user'}&backgroundColor=${isConnected ? '4acd8d' : '866dfd'}`}
-                  alt="Profile"
-                  className="object-contain"
-                />
-              </Link>
+              <AccountMenu
+                onRequestConnect={() => setWalletDialogOpen(true)}
+                className="size-9.5 rounded-md"
+              />
               <button
                 type="button"
                 aria-label={toggleDrawer ? 'Close navigation menu' : 'Open navigation menu'}
@@ -148,8 +155,8 @@ export default function Navbar() {
               <Button
                 type="button"
                 onClick={handleCreateClick}
-                disabled={connectionLoading || (!isConnected && connectors.length === 0)}
-                aria-busy={connectionLoading}
+                disabled={isConnecting}
+                aria-busy={isConnecting}
                 className={cn(
                   isConnected
                     ? 'bg-success text-success-foreground'
@@ -157,7 +164,7 @@ export default function Navbar() {
                   'w-full',
                 )}
               >
-                {connectionLoading
+                {isConnecting
                   ? 'Connecting...'
                   : isConnected
                     ? 'Create a campaign'
@@ -167,11 +174,7 @@ export default function Navbar() {
           </nav>
         </div>
       </div>
-      {connectionError && (
-        <p role="alert" className="mx-4 -mt-5 text-sm text-destructive sm:mx-0">
-          Wallet connection failed: {connectionError.message}
-        </p>
-      )}
+      <WalletConnectDialog open={walletDialogOpen} onOpenChange={setWalletDialogOpen} />
     </>
   );
 }

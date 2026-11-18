@@ -1,29 +1,62 @@
-import type { InputHTMLAttributes } from 'react';
+import type { ChangeEvent } from 'react';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
 
-interface FormInputProps extends InputHTMLAttributes<HTMLInputElement | HTMLTextAreaElement> {
+interface FormInputProps {
+  name: string;
   label?: string;
-  type?: HTMLInputElement['type'] | 'textarea';
+  type?: 'textarea' | 'text' | 'number' | 'date';
+  value: string;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+  maxLength?: number;
+  min?: number | string;
+  step?: number | string;
+  onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
 }
 
-export default function FormInput({ label, type, ...props }: FormInputProps) {
+export default function FormInput({
+  name,
+  label,
+  type,
+  value,
+  placeholder,
+  required,
+  disabled,
+  maxLength,
+  min,
+  step,
+  onChange,
+}: FormInputProps) {
   return (
     <label className="col w-full flex-1">
-      {label && (
-        <span className="font-epilogue mb-2.5 text-sm leading-5.5 font-medium text-muted-foreground">
-          {label}
-        </span>
-      )}
+      {label && <span className="mb-2.5 text-sm font-medium text-muted-foreground">{label}</span>}
       {type === 'textarea' ? (
-        <textarea
-          {...props}
-          className="font-epilogue min-w-0 rounded-lg border border-input bg-transparent py-3.75 text-sm text-foreground outline-none placeholder:text-placeholder focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-65 sm:px-6.25"
+        <Textarea
+          id={name}
+          name={name}
+          value={value}
+          placeholder={placeholder}
+          required={required}
+          disabled={disabled}
+          maxLength={maxLength}
+          onChange={onChange}
           rows={7}
         />
       ) : (
-        <input
+        <Input
+          id={name}
+          name={name}
           type={type}
-          {...props}
-          className="font-epilogue min-w-0 rounded-lg border border-input bg-transparent py-3.75 text-sm text-foreground outline-none placeholder:text-placeholder focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-65 sm:px-6.25"
+          value={value}
+          placeholder={placeholder}
+          required={required}
+          disabled={disabled}
+          maxLength={maxLength}
+          min={min}
+          step={step}
+          onChange={onChange}
         />
       )}
     </label>

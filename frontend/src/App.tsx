@@ -6,23 +6,32 @@ import Home from './pages/Home';
 import Profile from './pages/Profile';
 import CampiagnDetails from './pages/CampiagnDetails';
 import CreateCampaign from './pages/CreateCampaign';
+import { useTheme } from './providers/useTheme';
+import { Toaster } from 'sonner';
 
 function App() {
+  const { resolvedTheme } = useTheme();
+
   return (
-    <div className="sm:-8 relative flex min-h-screen bg-background text-foreground lg:p-4">
-      <div className="relative mr-10 ml-4 hidden sm:flex lg:ml-0">
-        <Sidebar />
+    <>
+      <div className="sm:-8 relative flex min-h-screen bg-background text-foreground lg:p-4">
+        <div className="relative mr-10 ml-4 hidden sm:flex lg:ml-0">
+          <Sidebar />
+        </div>
+        <div className="mx-auto max-w-7xl flex-1 max-sm:w-full sm:pr-5">
+          <Navbar />
+          <main className="min-w-0 px-4 pb-8 sm:px-0">
+            <Routes>
+              <Route path="/" element={<Home />}></Route>
+              <Route path="/profile" element={<Profile />}></Route>
+              <Route path="/create-campaign" element={<CreateCampaign />}></Route>
+              <Route path="/campaign-details/:id" element={<CampiagnDetails />}></Route>
+            </Routes>
+          </main>
+        </div>
       </div>
-      <div className="mx-auto max-w-7xl flex-1 max-sm:w-full sm:pr-5">
-        <Navbar />
-        <Routes>
-          <Route path="/" element={<Home />}></Route>
-          <Route path="/profile" element={<Profile />}></Route>
-          <Route path="/create-campaign" element={<CreateCampaign />}></Route>
-          <Route path="/campaign-details/:id" element={<CampiagnDetails />}></Route>
-        </Routes>
-      </div>
-    </div>
+      <Toaster closeButton position="top-right" richColors theme={resolvedTheme} />
+    </>
   );
 }
 
