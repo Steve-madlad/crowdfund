@@ -3,14 +3,25 @@ import { Input } from '@/components/ui/Input';
 import { CampaignDetailsSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { EmptyState, ErrorState } from '@/components/ui/StateMessage';
 import { calculateBarPercentage, daysLeft, formatEth } from '@/lib/utils';
+import { formatWeb3Error } from '@/lib/web3Errors';
+import WalletConnectDialog from '@/components/WalletConnectDialog';
 import confetti from 'canvas-confetti';
-import { ArrowLeft, Check, Copy, ExternalLink, ImageOff, Trophy } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  Copy,
+  ExternalLink,
+  ImageOff,
+  RotateCcw,
+  Trophy,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { parseEther, zeroAddress } from 'viem';
 import {
   useChainId,
+  useBlock,
   useConfig,
   useConnection,
   useReadContract,
@@ -21,11 +32,31 @@ import { crowdFundingAbi } from '../generated';
 
 const contractAddress = import.meta.env.VITE_REACT_CONTRACT_ADDRESS;
 
+type CampaignAction = 'donate' | 'withdraw' | 'refund' | 'cancel' | 'processRefunds';
+type ActionFeedback = {
+  action: CampaignAction;
+  stage: 'wallet' | 'confirming' | 'success' | 'reverted' | 'error';
+  hash?: `0x${string}`;
+  message?: string;
+};
+
+const actionLabels: Record<CampaignAction, string> = {
+  donate: 'contribution',
+  withdraw: 'withdrawal',
+  refund: 'refund',
+  cancel: 'cancellation',
+  processRefunds: 'refund activation',
+};
+
 export default function CampiagnDetails() {
   const { id } = useParams();
   const campaignId = /^\d+$/.test(id ?? '') ? BigInt(id!) : null;
   const [donationAmount, setDonationAmount] = useState('');
   const [donationValidationError, setDonationValidationError] = useState<string>();
+  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  const [cancelConfirmationOpen, setCancelConfirmationOpen] = useState(false);
+  const transactionAction = useRef<CampaignAction | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<ActionFeedback>();
   const [activeImage, setActiveImage] = useState<{ campaignId: string; index: number }>({
     campaignId: '',
     index: 0,
@@ -33,10 +64,19 @@ export default function CampiagnDetails() {
   const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
   const [shareStatus, setShareStatus] = useState<string>();
   const previousGoalState = useRef<{ campaignId: string; reached: boolean } | null>(null);
-  const completedDonationToastHash = useRef<string | undefined>(undefined);
+  const completedTransactionToastHash = useRef<string | undefined>(undefined);
   const { address } = useConnection();
   const chainId = useChainId();
   const config = useConfig();
+  const { data: latestBlock, error: latestBlockError } = useBlock({ watch: true });
+  const {
+    data: refundDelay,
+    error: refundDelayError,
+  } = useReadContract({
+    address: contractAddress,
+    abi: crowdFundingAbi,
+    functionName: 'REFUND_DELAY',
+  });
   const {
     data: campaign,
     isLoading: campaignLoading,
@@ -70,9 +110,9 @@ export default function CampiagnDetails() {
   });
   const {
     data: transactionHash,
-    error: donationError,
-    isPending: donationPending,
-    mutate: donate,
+    error: transactionError,
+    isPending: transactionPending,
+    mutate: writeContract,
   } = useWriteContract();
   const {
     data: receipt,
@@ -82,6 +122,18 @@ export default function CampiagnDetails() {
   } = useWaitForTransactionReceipt({
     hash: transactionHash,
     query: { enabled: Boolean(transactionHash) },
+  });
+  const {
+    data: userContribution,
+    error: contributionError,
+    isLoading: contributionLoading,
+    refetch: refetchContribution,
+  } = useReadContract({
+    abi: crowdFundingAbi,
+    address: contractAddress,
+    args: [campaignId ?? 0n, address ?? zeroAddress],
+    functionName: 'contributions',
+    query: { enabled: campaignId !== null && Boolean(address) },
   });
 
   const donators = donationData?.[0] ?? [];
@@ -95,6 +147,9 @@ export default function CampiagnDetails() {
         deadline: campaign[4],
         amountCollected: campaign[5],
         image: campaign[6],
+        cancelled: campaign[7],
+        withdrawn: campaign[8],
+        refundsEnabled: campaign[9],
       }
     : null;
   const remainingDays = campaignDetails ? daysLeft(campaignDetails.deadline) : null;
@@ -110,6 +165,45 @@ export default function CampiagnDetails() {
   const amountCollected = campaignDetails?.amountCollected;
   const target = campaignDetails?.target;
   const campaignEnded = remainingDays === null;
+  const refundWindowKnown = Boolean(
+    latestBlock && refundDelay !== undefined && !latestBlockError && !refundDelayError,
+  );
+  const refundWindowElapsed = Boolean(
+    campaignDetails &&
+    refundWindowKnown &&
+    latestBlock &&
+    refundDelay !== undefined &&
+      latestBlock.timestamp >= campaignDetails.deadline &&
+    latestBlock.timestamp - campaignDetails.deadline >= refundDelay,
+  );
+  const isOwner = Boolean(
+    address && campaignDetails && address.toLowerCase() === campaignDetails.owner.toLowerCase(),
+  );
+  const refundsAvailable = Boolean(
+    campaignDetails &&
+      (campaignDetails.cancelled ||
+        campaignDetails.refundsEnabled ||
+        (campaignEnded && !goalReached)),
+  );
+  const canProcessRefunds = Boolean(
+    campaignDetails &&
+      goalReached &&
+      refundWindowElapsed &&
+      !campaignDetails.cancelled &&
+      !campaignDetails.withdrawn &&
+      !campaignDetails.refundsEnabled,
+  );
+  const canWithdraw = Boolean(
+    isOwner &&
+      goalReached &&
+      campaignDetails &&
+      !campaignDetails.cancelled &&
+      !campaignDetails.withdrawn &&
+      !campaignDetails.refundsEnabled,
+  );
+  const canCancel = Boolean(
+    isOwner && campaignDetails && !campaignDetails.cancelled && !campaignDetails.withdrawn && !campaignEnded,
+  );
   const imageUrls =
     campaignImages && campaignImages.length > 0
       ? campaignImages
@@ -125,19 +219,60 @@ export default function CampiagnDetails() {
     .url;
 
   useEffect(() => {
-    if (!transactionHash || !receipt || completedDonationToastHash.current === transactionHash) {
+    if (!transactionHash || !receipt || completedTransactionToastHash.current === transactionHash) {
       return;
     }
 
-    completedDonationToastHash.current = transactionHash;
+    completedTransactionToastHash.current = transactionHash;
+    const action = transactionAction.current ?? 'donate';
+    setActionFeedback({
+      action,
+      stage: receipt.status === 'success' ? 'success' : 'reverted',
+      hash: transactionHash,
+      ...(receipt.status === 'reverted'
+        ? { message: 'The transaction was mined but reverted.' }
+        : {}),
+    });
+    console.info('[crowdfund:transaction] receipt', {
+      action,
+      campaignId: campaignId?.toString(),
+      hash: transactionHash,
+      status: receipt.status,
+    });
     if (receipt.status === 'success') {
-      toast.success('Contribution confirmed. Thank you for supporting this cause.');
+      const successMessage = {
+        donate: 'Contribution confirmed. Thank you for supporting this cause.',
+        withdraw: 'Campaign funds withdrawn successfully.',
+        refund: 'Your contribution was refunded successfully.',
+        cancel: 'Campaign cancelled. Supporters can now claim refunds.',
+        processRefunds: 'Supporter refunds are now available.',
+      }[action];
+      toast.success(successMessage);
       void refetchCampaign();
       void refetchDonations();
+      void refetchContribution();
     } else {
-      toast.error('The contribution transaction reverted.');
+      toast.error('The campaign transaction reverted.');
     }
-  }, [receipt, refetchCampaign, refetchDonations, transactionHash]);
+    transactionAction.current = null;
+  }, [campaignId, receipt, refetchCampaign, refetchDonations, refetchContribution, transactionHash]);
+
+  useEffect(() => {
+    if (!transactionHash || !receiptError) return;
+    const action = transactionAction.current ?? 'donate';
+    setActionFeedback({
+      action,
+      stage: 'error',
+      hash: transactionHash,
+      message: formatWeb3Error(receiptError),
+    });
+    console.error('[crowdfund:transaction] receipt lookup failed', {
+      action,
+      campaignId: campaignId?.toString(),
+      hash: transactionHash,
+      error: receiptError.message,
+    });
+  }, [campaignId, receiptError, transactionHash]);
 
   useEffect(() => {
     if (amountCollected === undefined || target === undefined) return;
@@ -166,10 +301,18 @@ export default function CampiagnDetails() {
   const handleDonation = () => {
     setDonationValidationError(undefined);
 
-    console.log({ campaignId, address });
+    if (campaignId === null || !address) {
+      setConnectDialogOpen(true);
+      return;
+    }
 
-    if (!campaignId || !address) {
-      setDonationValidationError('Connect your wallet before donating.');
+    if (campaignDetails?.cancelled) {
+      setDonationValidationError('This campaign has been cancelled.');
+      return;
+    }
+
+    if (campaignDetails?.withdrawn) {
+      setDonationValidationError('Campaign funds have already been withdrawn.');
       return;
     }
 
@@ -197,7 +340,15 @@ export default function CampiagnDetails() {
       return;
     }
 
-    donate(
+    transactionAction.current = 'donate';
+    setActionFeedback({ action: 'donate', stage: 'wallet' });
+    console.info('[crowdfund:transaction] requesting wallet submission', {
+      action: 'donate',
+      campaignId: campaignId.toString(),
+      contractAddress,
+      chainId,
+    });
+    writeContract(
       {
         address: contractAddress,
         abi: crowdFundingAbi,
@@ -205,8 +356,83 @@ export default function CampiagnDetails() {
         args: [campaignId],
         value,
       },
-      { onError: (error) => toast.error(`Donation failed: ${error.message}`) },
+      {
+        onSuccess: (hash) => {
+          setActionFeedback({ action: 'donate', stage: 'confirming', hash });
+          console.info('[crowdfund:transaction] wallet returned hash', {
+            action: 'donate',
+            campaignId: campaignId.toString(),
+            hash,
+          });
+        },
+        onError: (error) => {
+          transactionAction.current = null;
+          const message = formatWeb3Error(error);
+          setActionFeedback({ action: 'donate', stage: 'error', message });
+          console.error('[crowdfund:transaction] wallet submission failed', {
+            action: 'donate',
+            campaignId: campaignId.toString(),
+            error: error.message,
+          });
+          toast.error(`Contribution failed: ${message}`);
+        },
+      },
     );
+  };
+
+  const handleCampaignAction = (action: Exclude<CampaignAction, 'donate'>) => {
+    if (campaignId === null) return;
+    if (!address) {
+      setConnectDialogOpen(true);
+      return;
+    }
+
+    transactionAction.current = action;
+    setActionFeedback({ action, stage: 'wallet' });
+    console.info('[crowdfund:transaction] requesting wallet submission', {
+      action,
+      campaignId: campaignId.toString(),
+      contractAddress,
+      chainId,
+    });
+    const functionName =
+      action === 'withdraw'
+        ? 'withdrawFunds'
+        : action === 'refund'
+          ? 'claimRefund'
+          : action === 'cancel'
+            ? 'cancelCampaign'
+            : 'processRefunds';
+    writeContract(
+      {
+        address: contractAddress,
+        abi: crowdFundingAbi,
+        functionName,
+        args: [campaignId],
+      },
+      {
+        onSuccess: (hash) => {
+          setActionFeedback({ action, stage: 'confirming', hash });
+          console.info('[crowdfund:transaction] wallet returned hash', {
+            action,
+            campaignId: campaignId.toString(),
+            hash,
+          });
+        },
+        onError: (error) => {
+          transactionAction.current = null;
+          const message = formatWeb3Error(error);
+          setActionFeedback({ action, stage: 'error', message });
+          console.error('[crowdfund:transaction] wallet submission failed', {
+            action,
+            campaignId: campaignId.toString(),
+            error: error.message,
+          });
+          toast.error(`Campaign action failed: ${message}`);
+        },
+      },
+    );
+    setCancelConfirmationOpen(false);
   };
 
   const handleShare = async () => {
@@ -242,7 +468,7 @@ export default function CampiagnDetails() {
     return (
       <ErrorState
         title="Campaign couldn't be loaded"
-        description={campaignError.message}
+        description={formatWeb3Error(campaignError)}
         onRetry={() => void refetchCampaign()}
       >
         <Link
@@ -322,6 +548,67 @@ export default function CampiagnDetails() {
           {shareStatus}
         </p>
       )}
+      {transactionError && (
+        <p role="alert" className="border-destructive/30 bg-destructive/5 text-destructive mb-4 rounded-lg border p-3 text-sm">
+          Campaign transaction failed: {formatWeb3Error(transactionError)}
+        </p>
+      )}
+      {receiptError && (
+        <p role="alert" className="border-destructive/30 bg-destructive/5 text-destructive mb-4 rounded-lg border p-3 text-sm">
+          Unable to confirm the transaction: {formatWeb3Error(receiptError)}
+        </p>
+      )}
+      {receiptSuccess && receipt?.status === 'success' && (
+        <p role="status" className="border-success/30 bg-success/5 text-success mb-4 rounded-lg border p-3 text-sm" aria-live="polite">
+          Transaction confirmed successfully.
+        </p>
+      )}
+      {receiptSuccess && receipt?.status === 'reverted' && (
+        <p role="alert" className="border-destructive/30 bg-destructive/5 text-destructive mb-4 rounded-lg border p-3 text-sm">
+          The transaction reverted.
+        </p>
+      )}
+      {actionFeedback && (
+        <div
+          role={
+            actionFeedback.stage === 'error' || actionFeedback.stage === 'reverted'
+              ? 'alert'
+              : 'status'
+          }
+          aria-live="polite"
+          className={`mb-4 rounded-lg border p-3 text-sm ${
+            actionFeedback.stage === 'error' || actionFeedback.stage === 'reverted'
+              ? 'border-destructive/30 bg-destructive/5 text-destructive'
+              : actionFeedback.stage === 'success'
+                ? 'border-success/30 bg-success/5 text-success'
+                : 'border-border bg-muted text-foreground'
+          }`}
+        >
+          <p>
+            {actionFeedback.stage === 'wallet'
+              ? `Waiting for wallet approval to submit the ${actionLabels[actionFeedback.action]}.`
+              : actionFeedback.stage === 'confirming'
+                ? `Wallet submitted the ${actionLabels[actionFeedback.action]}; waiting for network confirmation.`
+                : actionFeedback.stage === 'success'
+                  ? `The ${actionLabels[actionFeedback.action]} was confirmed.`
+                  : actionFeedback.stage === 'reverted'
+                    ? `The ${actionLabels[actionFeedback.action]} transaction reverted.`
+                    : `The ${actionLabels[actionFeedback.action]} could not be completed or confirmed.`}
+          </p>
+          {actionFeedback.hash && (
+            <p className="mt-1 break-all font-mono text-xs">Transaction: {actionFeedback.hash}</p>
+          )}
+          {actionFeedback.message && (
+            <p className="mt-1 wrap-break-word text-xs">{actionFeedback.message}</p>
+          )}
+        </div>
+      )}
+      {(latestBlockError || refundDelayError) && (
+        <p role="alert" className="border-destructive/30 bg-destructive/5 text-destructive mb-4 rounded-lg border p-3 text-sm">
+          Unable to determine whether the three-week refund window has elapsed.
+          {` ${latestBlockError?.message ?? refundDelayError?.message ?? ''}`}
+        </p>
+      )}
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(19rem,0.75fr)]">
         <div className="min-w-0 space-y-6">
@@ -379,19 +666,31 @@ export default function CampiagnDetails() {
               <div>
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-                    goalReached
+                    campaignDetails.cancelled
+                        ? 'bg-destructive/10 text-destructive'
+                        : goalReached
                       ? 'bg-success/10 text-success'
                       : campaignEnded
                         ? 'bg-muted text-muted-foreground'
                         : 'bg-primary/10 text-primary'
                   }`}
                 >
-                  {goalReached && <Trophy className="size-3.5" aria-hidden="true" />}
-                  {goalReached
-                    ? 'Goal reached'
-                    : campaignEnded
-                      ? 'Campaign ended'
-                      : 'Active campaign'}
+                  {goalReached && !campaignDetails.cancelled && (
+                    <Trophy className="size-3.5" aria-hidden="true" />
+                  )}
+                  {campaignDetails.cancelled
+                    ? 'Cancelled · refunds available'
+                    : campaignDetails.withdrawn
+                        ? 'Funds withdrawn'
+                        : goalReached
+                          ? campaignDetails.refundsEnabled
+                            ? 'Goal reached · refunds open'
+                            : 'Goal reached'
+                          : campaignEnded
+                            ? refundsAvailable
+                              ? 'Unsuccessful · refunds available'
+                              : 'Campaign ended'
+                            : 'Active campaign'}
                 </span>
                 <h1 className="font-epilogue text-card-foreground mt-3 text-2xl leading-tight font-bold sm:text-3xl">
                   {campaignDetails.title}
@@ -437,13 +736,16 @@ export default function CampiagnDetails() {
                   {uniqueBackers} unique {uniqueBackers === 1 ? 'wallet' : 'wallets'} ·{' '}
                   {donators.length} {donators.length === 1 ? 'contribution' : 'contributions'}
                 </p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  History shows original on-chain contributions; refunds are shown separately.
+                </p>
               </div>
             </div>
             <div className="mt-5">
               {donationsError ? (
                 <ErrorState
                   title="Supporters couldn't be loaded"
-                  description={donationsError.message}
+                  description={formatWeb3Error(donationsError)}
                   onRetry={() => void refetchDonations()}
                   className="p-4"
                 />
@@ -503,7 +805,8 @@ export default function CampiagnDetails() {
               <p className="text-muted-foreground shrink-0 text-xs">raised</p>
             </div>
             <p className="text-muted-foreground mt-1 text-sm">
-              of {formatEth(campaignDetails.target)} ETH goal
+              {refundsAvailable ? 'pledged · refunds available' : 'raised'} of{' '}
+              {formatEth(campaignDetails.target)} ETH goal
             </p>
             <div
               className="bg-muted mt-4 h-3 overflow-hidden rounded-full"
@@ -540,16 +843,164 @@ export default function CampiagnDetails() {
             </div>
           </section>
 
+          {isOwner && (
+            <section className="border-border bg-card rounded-2xl border p-5 sm:p-6">
+              <h2 className="font-epilogue text-card-foreground text-lg font-semibold">
+                Manage campaign funds
+              </h2>
+              <p className="text-muted-foreground mt-1 text-sm leading-6">
+                {canWithdraw && refundWindowKnown && !refundWindowElapsed
+                  ? `The goal is reached. You can withdraw the full ${formatEth(campaignDetails.amountCollected)} ETH held in escrow. Withdrawal is final and disables cancellation.`
+                  : canWithdraw && !refundWindowKnown
+                    ? 'Checking the latest block time to determine whether withdrawal is still available.'
+                  : campaignDetails.withdrawn
+                    ? 'The escrowed funds have already been withdrawn.'
+                    : campaignDetails.cancelled
+                      ? 'The campaign is cancelled. Supporters can claim their full contributions.'
+                        : campaignDetails.refundsEnabled
+                          ? 'Supporter refunds have been enabled. Each supporter can claim their full contribution.'
+                          : refundWindowElapsed && goalReached
+                            ? 'The three-week payout window has elapsed. Anyone can enable full refunds for supporters.'
+                            : 'Funds remain in escrow until the goal is reached or supporters claim refunds after an unsuccessful deadline.'}
+              </p>
+              {canWithdraw && refundWindowKnown && !refundWindowElapsed && (
+                <Button
+                  type="button"
+                  className="bg-primary text-primary-foreground mt-4 w-full hover:opacity-90"
+                  disabled={transactionPending || receiptPending}
+                  aria-busy={transactionPending || receiptPending}
+                  onClick={() => handleCampaignAction('withdraw')}
+                >
+                  {transactionPending || receiptPending ? 'Processing…' : 'Withdraw funds'}
+                </Button>
+              )}
+              {canCancel && (
+                <div className="mt-4">
+                  {cancelConfirmationOpen ? (
+                    <div className="border-destructive/30 bg-destructive/5 grid gap-3 rounded-xl border p-4">
+                      <p className="text-sm leading-6 text-foreground">
+                        Cancelling stops contributions permanently. Supporters will be able to
+                        claim their full contributions. This cannot be undone.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          className="bg-destructive text-destructive-foreground min-h-10"
+                          disabled={transactionPending || receiptPending}
+                          onClick={() => handleCampaignAction('cancel')}
+                        >
+                          Confirm cancellation
+                        </Button>
+                        <Button
+                          type="button"
+                          className="border-border bg-background min-h-10 border text-foreground hover:bg-muted"
+                          onClick={() => setCancelConfirmationOpen(false)}
+                        >
+                          Keep campaign
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      className="border-destructive/40 text-destructive hover:bg-destructive/5 min-h-10 w-full border"
+                      onClick={() => setCancelConfirmationOpen(true)}
+                    >
+                      Cancel campaign
+                    </Button>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+          {(refundsAvailable || canProcessRefunds) && (
+            <section className="border-border bg-card rounded-2xl border p-5 sm:p-6">
+              <h2 className="font-epilogue text-card-foreground text-lg font-semibold">
+                Supporter refunds
+              </h2>
+              <p className="text-muted-foreground mt-1 text-sm leading-6">
+                {campaignDetails.cancelled
+                  ? 'This campaign was cancelled. Supporters can claim their full contributions back from escrow.'
+                  : campaignDetails.refundsEnabled
+                    ? 'Refunds were enabled because the owner did not withdraw within three weeks after the deadline. Supporters can claim their full contributions back from escrow.'
+                    : campaignEnded && !goalReached
+                      ? 'This campaign ended below its goal. Supporters can claim their full contributions back from escrow.'
+                      : 'The owner has not withdrawn the funds within three weeks after the deadline. Anyone can enable full refunds; supporters can then claim their contributions.'}
+              </p>
+              {canProcessRefunds && (
+                <Button
+                  type="button"
+                  className="bg-primary text-primary-foreground mt-4 w-full hover:opacity-90"
+                  disabled={transactionPending || receiptPending}
+                  aria-busy={transactionPending || receiptPending}
+                  onClick={() => handleCampaignAction('processRefunds')}
+                >
+                  {transactionPending || receiptPending
+                    ? 'Enabling refunds…'
+                    : address
+                      ? 'Enable supporter refunds'
+                      : 'Connect wallet to enable refunds'}
+                </Button>
+              )}
+              {address && contributionLoading ? (
+                <Skeleton className="mt-4 h-10 w-full" />
+              ) : address && contributionError ? (
+                <p role="alert" className="text-destructive mt-3 text-sm">
+                  Unable to check your refundable contribution: {formatWeb3Error(contributionError)}
+                </p>
+              ) : address && (userContribution ?? 0n) > 0n ? (
+                <>
+                  <p className="text-foreground mt-3 text-sm font-semibold">
+                    Your refundable amount: {formatEth(userContribution ?? 0n)} ETH
+                  </p>
+                  <Button
+                    type="button"
+                    className="bg-primary text-primary-foreground mt-4 w-full gap-2 hover:opacity-90"
+                    disabled={transactionPending || receiptPending}
+                    aria-busy={transactionPending || receiptPending}
+                    onClick={() => handleCampaignAction('refund')}
+                  >
+                    <RotateCcw className="size-4" aria-hidden="true" />
+                    {transactionPending || receiptPending ? 'Processing refund…' : 'Claim refund'}
+                  </Button>
+                </>
+              ) : address ? (
+                <p className="text-muted-foreground mt-3 text-sm">
+                  This connected wallet has no remaining contribution to refund.
+                </p>
+              ) : (
+                <Button
+                  type="button"
+                  className="bg-primary text-primary-foreground mt-4 w-full hover:opacity-90"
+                  onClick={() => setConnectDialogOpen(true)}
+                >
+                  Connect wallet to check refund
+                </Button>
+              )}
+            </section>
+          )}
+
           <section className="border-border bg-card rounded-2xl border p-5 sm:p-6">
             <h2 className="font-epilogue text-card-foreground text-lg font-semibold">
-              {goalReached ? 'Goal reached' : campaignEnded ? 'Campaign ended' : 'Back this cause'}
+              {campaignDetails.cancelled
+                ? 'Campaign cancelled'
+                : goalReached
+                  ? 'Goal reached'
+                  : campaignEnded
+                    ? 'Campaign ended'
+                    : 'Back this cause'}
             </h2>
             <p className="text-muted-foreground mt-1 text-sm leading-6">
-              {goalReached
-                ? 'Thank you to everyone who helped make this possible.'
-                : campaignEnded
-                  ? 'This campaign is no longer accepting contributions.'
-                  : 'Choose an amount to contribute directly to the campaign owner.'}
+              {campaignDetails.cancelled
+                ? 'This campaign was cancelled. Supporters can claim their contributions back.'
+                : goalReached
+                  ? 'Thank you to everyone who helped make this possible.'
+                  : campaignEnded
+                    ? refundsAvailable
+                      ? 'This campaign ended below its goal. Supporters can claim full refunds.'
+                      : 'This campaign is no longer accepting contributions.'
+                    : 'Choose an amount to contribute. Funds stay in escrow until the goal is reached.'}
             </p>
             <div className="mt-5 grid gap-3">
               <label
@@ -569,7 +1020,14 @@ export default function CampiagnDetails() {
                     setDonationAmount(event.target.value);
                     setDonationValidationError(undefined);
                   }}
-                  disabled={campaignEnded || goalReached || donationPending || receiptPending}
+                  disabled={
+                    campaignEnded ||
+                    goalReached ||
+                    campaignDetails.cancelled ||
+                    campaignDetails.withdrawn ||
+                    transactionPending ||
+                    receiptPending
+                  }
                 />
               </label>
               {donationValidationError && (
@@ -577,49 +1035,42 @@ export default function CampiagnDetails() {
                   {donationValidationError}
                 </p>
               )}
-              {donationError && (
-                <p role="alert" className="text-destructive text-sm">
-                  Donation failed: {donationError.message}
-                </p>
-              )}
-              {receiptError && (
-                <p role="alert" className="text-destructive text-sm">
-                  Unable to confirm the donation: {receiptError.message}
-                </p>
-              )}
-              {receiptSuccess && receipt?.status === 'success' && (
-                <p role="status" className="text-success text-sm" aria-live="polite">
-                  Donation confirmed. Thank you for supporting this campaign.
-                </p>
-              )}
-              {receiptSuccess && receipt?.status === 'reverted' && (
-                <p role="alert" className="text-destructive text-sm">
-                  The donation transaction reverted.
-                </p>
-              )}
               <Button
                 className="bg-primary text-primary-foreground w-full hover:opacity-90"
-                disabled={donationPending || receiptPending || campaignEnded || goalReached}
-                aria-busy={donationPending || receiptPending}
+                disabled={
+                  transactionPending ||
+                  receiptPending ||
+                  campaignEnded ||
+                  goalReached ||
+                  campaignDetails.cancelled ||
+                  campaignDetails.withdrawn
+                }
+                aria-busy={transactionPending || receiptPending}
                 onClick={handleDonation}
               >
-                {donationPending || receiptPending
+                {transactionPending || receiptPending
                   ? 'Processing contribution…'
-                  : goalReached
-                    ? 'Goal reached'
-                    : campaignEnded
-                      ? 'Campaign ended'
-                      : 'Contribute'}
+                  : campaignDetails.cancelled
+                    ? 'Campaign cancelled'
+                    : goalReached
+                      ? 'Goal reached'
+                      : campaignEnded
+                        ? 'Campaign ended'
+                        : 'Contribute'}
               </Button>
             </div>
             <p className="text-muted-foreground mt-4 text-xs leading-5">
-              Escrowed contributions with defined withdrawal and refund rules are planned for a
-              future contract phase. This prototype still transfers contributions immediately to the
-              owner and is not escrow-protected.
+              A contribution may take the campaign over its goal; the full amount is accepted.
+              {' '}
+              Contributions are held in escrow. If the goal is not reached by the deadline, or the
+              owner cancels before the deadline and before withdrawing, supporters can claim full
+              refunds. The owner can withdraw once the goal is reached. If funds remain unpaid three
+              weeks after the deadline, anyone can enable supporter refunds.
             </p>
           </section>
         </aside>
       </div>
+      <WalletConnectDialog open={connectDialogOpen} onOpenChange={setConnectDialogOpen} />
     </div>
   );
 }

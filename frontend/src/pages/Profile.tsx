@@ -5,6 +5,7 @@ import { EmptyState, ErrorState } from '@/components/ui/StateMessage';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { crowdFundingAbi } from '@/generated';
 import { formatEth } from '@/lib/utils';
+import { formatWeb3Error } from '@/lib/web3Errors';
 import { summarizeProfile } from '@/lib/profile';
 import {
   Bar,
@@ -121,7 +122,7 @@ export default function Profile() {
         <PageHeader />
         <ErrorState
           title="Profile activity couldn't be loaded"
-          description={error.message}
+          description={formatWeb3Error(error)}
           onRetry={() => void refetch()}
           className="mt-6"
         />
@@ -174,12 +175,12 @@ export default function Profile() {
           icon={<Plus className="size-5" aria-hidden="true" />}
         />
         <StatCard
-          label="Total raised"
+          label="Gross raised"
           value={`${formatEth(summary.totalRaised)} ETH`}
           icon={<TrendingUp className="size-5" aria-hidden="true" />}
         />
         <StatCard
-          label="Total contributed"
+          label="Gross contributed"
           value={`${formatEth(summary.totalDonated)} ETH`}
           icon={<WalletCards className="size-5" aria-hidden="true" />}
         />
@@ -194,13 +195,13 @@ export default function Profile() {
         <div className="mb-4">
           <h2 className="font-epilogue text-xl font-semibold text-foreground">Your activity</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Summaries from the campaigns and donation records on this contract.
+            Lifetime totals reflect original on-chain contributions, including amounts later refunded.
           </p>
         </div>
         <div className="grid gap-4 xl:grid-cols-2">
           <ChartCard
-            title="Funds raised by your campaigns"
-            description="ETH collected per campaign you created."
+            title="Campaign contributions"
+            description="Original ETH contributions to campaigns you created; refunded amounts remain in this history."
           >
             {createdChartIsEmpty ? (
               <ChartEmptyState message="Create a campaign to see its funding here." />
@@ -232,7 +233,7 @@ export default function Profile() {
 
           <ChartCard
             title="Where you contribute"
-            description="Your contributed ETH grouped by campaign."
+            description="Original contributions grouped by campaign; refunded amounts remain in this history."
           >
             {donatedChartIsEmpty ? (
               <ChartEmptyState message="Contribute to a campaign to see your activity here." />
@@ -300,7 +301,15 @@ export default function Profile() {
                     image={campaign.image}
                     amount={campaign.amountCollected}
                     target={campaign.target}
-                    detail="raised"
+                    detail={
+                      campaign.cancelled
+                        ? 'pledged · cancelled'
+                        : campaign.refundsEnabled
+                          ? 'pledged · refunds open'
+                          : campaign.withdrawn
+                            ? 'raised · withdrawn'
+                            : 'raised'
+                    }
                   />
                 </li>
               ))}

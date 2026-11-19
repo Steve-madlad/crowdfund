@@ -7,6 +7,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/DropdownMenu';
 import { useTheme } from '@/providers/useTheme';
+import { formatWeb3Error } from '@/lib/web3Errors';
 import { Copy, LogOut, Moon, Sun, UserRound, Wallet } from 'lucide-react';
 import cn from '@/lib/utils';
 import { useState } from 'react';
@@ -51,7 +52,8 @@ export default function AccountMenu({ onRequestConnect, className }: AccountMenu
       { connector },
       {
         onSuccess: () => toast.success('Wallet disconnected from this app.'),
-        onError: (error) => toast.error(`Could not disconnect wallet: ${error.message}`),
+        onError: (error) =>
+          toast.error(`Could not disconnect wallet: ${formatWeb3Error(error)}`),
       },
     );
   };
@@ -188,7 +190,7 @@ export default function AccountMenu({ onRequestConnect, className }: AccountMenu
             </DropdownMenuItem>
             {disconnectError && (
               <p role="alert" className="px-2.5 py-2 text-xs leading-5 text-destructive">
-                Disconnect failed: {disconnectError.message}
+                Disconnect failed: {formatWeb3Error(disconnectError)}
               </p>
             )}
           </>

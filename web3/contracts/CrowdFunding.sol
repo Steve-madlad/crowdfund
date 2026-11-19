@@ -4,6 +4,7 @@ pragma solidity ^0.8.38;
 contract CrowdFunding {
   uint256 public constant MAX_CAMPAIGN_IMAGES = 5;
   uint256 public constant MAX_IMAGE_URL_BYTES = 512;
+  uint256 public constant REFUND_DELAY = 21 days;
 
   struct Campaign {
     address owner;
@@ -13,14 +14,35 @@ contract CrowdFunding {
     uint256 deadline;
     uint256 amountCollected;
     string image;
+    bool cancelled;
+    bool withdrawn;
+    bool refundsEnabled;
     string[] additionalImages;
     address[] donators;
     uint256[] donations;
   }
 
   mapping(uint256 => Campaign) public campaigns;
+  mapping(uint256 => mapping(address => uint256)) public contributions;
 
   uint256 public numberOfCampaigns = 0;
+
+  event CampaignCreated(
+    uint256 indexed campaignId,
+    address indexed owner,
+    uint256 target,
+    uint256 deadline
+  );
+  event DonationReceived(
+    uint256 indexed campaignId,
+    address indexed donor,
+    uint256 amount,
+    uint256 totalCollected
+  );
+  event CampaignCancelled(uint256 indexed campaignId, address indexed owner);
+  event FundsWithdrawn(uint256 indexed campaignId, address indexed owner, uint256 amount);
+  event RefundsProcessed(uint256 indexed campaignId, address indexed caller);
+  event RefundClaimed(uint256 indexed campaignId, address indexed donor, uint256 amount);
 
   function createCampaign(
     address _owner,
@@ -48,6 +70,9 @@ contract CrowdFunding {
       campaign.deadline = _deadline;
       campaign.amountCollected = 0;
       campaign.image = _images[0];
+      campaign.cancelled = false;
+      campaign.withdrawn = false;
+      campaign.refundsEnabled = false;
 
       bytes memory httpsPrefix = bytes("https://");
       for (uint256 i = 0; i < _images.length; i++) {
@@ -71,7 +96,8 @@ contract CrowdFunding {
       }
 
       numberOfCampaigns++;
-      
+      emit CampaignCreated(numberOfCampaigns - 1, _owner, _target, _deadline);
+
       return numberOfCampaigns - 1;
   }
 
@@ -83,15 +109,85 @@ contract CrowdFunding {
 
     require(amount > 0, "Donation must be greater than zero");
     require(block.timestamp <= campaign.deadline, "Campaign has ended");
+    require(!campaign.cancelled, "Campaign has been cancelled");
+    require(!campaign.withdrawn, "Campaign funds have been withdrawn");
     require(campaign.amountCollected < campaign.target, "Campaign goal has been reached");
 
     campaign.donators.push(msg.sender);
     campaign.donations.push(amount);
     campaign.amountCollected += amount;
+    contributions[_id][msg.sender] += amount;
+
+    emit DonationReceived(_id, msg.sender, amount, campaign.amountCollected);
+  }
+
+  function withdrawFunds(uint256 _id) public {
+    require(_id < numberOfCampaigns, "Campaign does not exist");
+    Campaign storage campaign = campaigns[_id];
+
+    require(msg.sender == campaign.owner, "Only the campaign owner can withdraw");
+    require(!campaign.cancelled, "Campaign has been cancelled");
+    require(!campaign.withdrawn, "Campaign funds have already been withdrawn");
+    require(!campaign.refundsEnabled, "Refunds have been processed");
+    require(!_refundWindowElapsed(campaign.deadline), "Refund window has elapsed");
+    require(campaign.amountCollected >= campaign.target, "Campaign goal has not been reached");
+
+    uint256 amount = campaign.amountCollected;
+    campaign.withdrawn = true;
 
     (bool sent,) = payable(campaign.owner).call{value: amount}("");
-    
     require(sent, "Transfer failed");
+
+    emit FundsWithdrawn(_id, campaign.owner, amount);
+  }
+
+  function processRefunds(uint256 _id) public {
+    require(_id < numberOfCampaigns, "Campaign does not exist");
+    Campaign storage campaign = campaigns[_id];
+
+    require(!campaign.withdrawn, "Campaign funds have already been withdrawn");
+    require(!campaign.cancelled, "Campaign has been cancelled");
+    require(_refundWindowElapsed(campaign.deadline), "Refund delay has not elapsed");
+    require(campaign.amountCollected >= campaign.target, "Campaign did not reach its goal");
+    require(!campaign.refundsEnabled, "Refunds have already been processed");
+
+    campaign.refundsEnabled = true;
+    emit RefundsProcessed(_id, msg.sender);
+  }
+
+  function cancelCampaign(uint256 _id) public {
+    require(_id < numberOfCampaigns, "Campaign does not exist");
+    Campaign storage campaign = campaigns[_id];
+
+    require(msg.sender == campaign.owner, "Only the campaign owner can cancel");
+    require(block.timestamp < campaign.deadline, "Campaign deadline has passed");
+    require(!campaign.cancelled, "Campaign has already been cancelled");
+    require(!campaign.withdrawn, "Campaign funds have already been withdrawn");
+
+    campaign.cancelled = true;
+    emit CampaignCancelled(_id, campaign.owner);
+  }
+
+  function claimRefund(uint256 _id) public {
+    require(_id < numberOfCampaigns, "Campaign does not exist");
+    Campaign storage campaign = campaigns[_id];
+    bool failed = block.timestamp > campaign.deadline &&
+      campaign.amountCollected < campaign.target;
+
+    require(campaign.cancelled || failed || campaign.refundsEnabled, "Campaign is not refundable");
+
+    uint256 amount = contributions[_id][msg.sender];
+    require(amount > 0, "No contribution to refund");
+
+    contributions[_id][msg.sender] = 0;
+    (bool sent,) = payable(msg.sender).call{value: amount}("");
+    require(sent, "Refund transfer failed");
+
+    emit RefundClaimed(_id, msg.sender, amount);
+  }
+
+  function _refundWindowElapsed(uint256 _deadline) internal view returns (bool) {
+    return block.timestamp >= _deadline && block.timestamp - _deadline >= REFUND_DELAY;
   }
 
   function getDonators(uint256 _id) public view returns (address[] memory, uint256[] memory) {

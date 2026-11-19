@@ -10,7 +10,7 @@ export const campaignCategories = [
 ] as const;
 
 export type CampaignCategory = (typeof campaignCategories)[number];
-export type CampaignStatusFilter = 'all' | 'active' | 'ended' | 'goal-reached';
+export type CampaignStatusFilter = 'all' | 'active' | 'ended' | 'goal-reached' | 'cancelled';
 export type CampaignSortOption = 'newest' | 'oldest' | 'most-funded' | 'title';
 
 interface CampaignData {
@@ -20,6 +20,7 @@ interface CampaignData {
   target: bigint;
   amountCollected: bigint;
   deadline: bigint;
+  cancelled?: boolean;
 }
 
 export interface CampaignListing<T extends CampaignData> {
@@ -50,9 +51,11 @@ export function filterCampaignListings<T extends CampaignData>(
     const reachedGoal = campaign.target > 0n && campaign.amountCollected >= campaign.target;
     const matchesStatus =
       filters.status === 'all' ||
-      (filters.status === 'active' && remainingDays !== null) ||
-      (filters.status === 'ended' && remainingDays === null) ||
-      (filters.status === 'goal-reached' && reachedGoal);
+      (filters.status === 'cancelled' && campaign.cancelled === true) ||
+      (campaign.cancelled !== true &&
+        ((filters.status === 'active' && remainingDays !== null) ||
+          (filters.status === 'ended' && remainingDays === null) ||
+          (filters.status === 'goal-reached' && reachedGoal)));
 
     return matchesSearch && matchesCategory && matchesStatus;
   });

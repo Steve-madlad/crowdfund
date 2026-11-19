@@ -54,6 +54,7 @@ describe('paginateItems', () => {
       target: bigint,
       amountCollected: bigint,
       deadline: bigint,
+      cancelled = false,
     ) => ({
       title,
       description,
@@ -61,6 +62,7 @@ describe('paginateItems', () => {
       target,
       amountCollected,
       deadline,
+      cancelled,
     });
     const listings: CampaignListing<ReturnType<typeof campaign>>[] = [
       {
@@ -77,6 +79,11 @@ describe('paginateItems', () => {
         id: 2,
         category: 'Arts',
         campaign: campaign('Music festival', 'Support local musicians.', 100n, 50n, 900_000_000n),
+      },
+      {
+        id: 3,
+        category: 'Community',
+        campaign: campaign('Cancelled shelter', 'Support local families.', 100n, 20n, 2_000_000_000n, true),
       },
     ];
 
@@ -96,7 +103,7 @@ describe('paginateItems', () => {
       const all = { search: '', category: 'all', status: 'all' as const, now };
       assert.deepEqual(
         filterCampaignListings(listings, { ...all, sort: 'most-funded' }).map(({ id }) => id),
-        [1, 2, 0],
+        [1, 2, 0, 3],
       );
       assert.deepEqual(
         filterCampaignListings(listings, { ...all, status: 'ended', sort: 'newest' }).map(
@@ -109,6 +116,18 @@ describe('paginateItems', () => {
           ({ id }) => id,
         ),
         [1],
+      );
+      assert.deepEqual(
+        filterCampaignListings(listings, { ...all, status: 'cancelled', sort: 'newest' }).map(
+          ({ id }) => id,
+        ),
+        [3],
+      );
+      assert.deepEqual(
+        filterCampaignListings(listings, { ...all, status: 'active', sort: 'newest' }).map(
+          ({ id }) => id,
+        ),
+        [1, 0],
       );
     });
   });

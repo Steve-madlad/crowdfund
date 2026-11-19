@@ -17,6 +17,7 @@ import {
   type CampaignStatusFilter,
 } from '@/lib/campaigns';
 import { calculateBarPercentage, daysLeft, formatEth } from '@/lib/utils';
+import { formatWeb3Error } from '@/lib/web3Errors';
 import { ChevronLeft, ChevronRight, ImageOff } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -25,7 +26,7 @@ import { crowdFundingAbi } from '../generated';
 
 const contractAddress = import.meta.env.VITE_REACT_CONTRACT_ADDRESS;
 const PAGE_SIZE = 9;
-const statuses = ['all', 'active', 'ended', 'goal-reached'] as const;
+const statuses = ['all', 'active', 'ended', 'goal-reached', 'cancelled'] as const;
 const sortOptions = ['newest', 'oldest', 'most-funded', 'title'] as const;
 
 export default function Home() {
@@ -107,7 +108,7 @@ export default function Home() {
         {heading}
         <ErrorState
           title="Campaigns couldn't be loaded"
-          description={error.message}
+          description={formatWeb3Error(error)}
           onRetry={() => void refetch()}
           className="mt-5"
         />
@@ -199,6 +200,7 @@ export default function Home() {
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="ended">Ended</SelectItem>
               <SelectItem value="goal-reached">Goal reached</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
         </label>
@@ -269,6 +271,9 @@ export default function Home() {
                 target={campaign.target}
                 amountCollected={campaign.amountCollected}
                 deadline={campaign.deadline}
+                cancelled={campaign.cancelled}
+                withdrawn={campaign.withdrawn}
+                refundsEnabled={campaign.refundsEnabled}
               />
             ))}
           </div>
@@ -316,6 +321,9 @@ interface CampaignCardProps {
   target: bigint;
   amountCollected: bigint;
   deadline: bigint;
+  cancelled: boolean;
+  withdrawn: boolean;
+  refundsEnabled: boolean;
 }
 
 function CampaignCard({
@@ -328,10 +336,15 @@ function CampaignCard({
   target,
   amountCollected,
   deadline,
+  cancelled,
+  withdrawn,
+  refundsEnabled,
 }: CampaignCardProps) {
   const remainingDays = daysLeft(deadline);
   const progress = calculateBarPercentage(target, amountCollected);
   const goalReached = target > 0n && amountCollected >= target;
+  const refundsAvailable =
+    cancelled || refundsEnabled || (remainingDays === null && !goalReached);
   const [imageFailed, setImageFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
 
@@ -359,9 +372,21 @@ function CampaignCard({
         <span className="border-border/70 bg-background/90 text-foreground absolute top-3 left-3 rounded-full border px-2.5 py-1 text-xs font-medium backdrop-blur">
           {category}
         </span>
-        {goalReached && (
-          <span className="bg-success text-success-foreground absolute top-3 right-3 rounded-full px-2.5 py-1 text-xs font-semibold">
-            Goal reached
+        {(cancelled || withdrawn || goalReached) && (
+          <span
+            className={`absolute top-3 right-3 rounded-full px-2.5 py-1 text-xs font-semibold ${
+              cancelled
+                ? 'bg-destructive text-destructive-foreground'
+                : 'bg-success text-success-foreground'
+            }`}
+          >
+            {cancelled
+              ? 'Cancelled'
+              : withdrawn
+                ? 'Funds withdrawn'
+                : refundsEnabled
+                  ? 'Refunds open'
+                  : 'Goal reached'}
           </span>
         )}
       </div>
@@ -378,7 +403,9 @@ function CampaignCard({
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-soft-foreground text-sm font-semibold">
               {formatEth(amountCollected)} ETH{' '}
-              <span className="text-muted-foreground font-normal">raised</span>
+              <span className="text-muted-foreground font-normal">
+                {refundsAvailable ? 'pledged' : 'raised'}
+              </span>
             </p>
             <p className="text-muted-foreground shrink-0 text-xs">of {formatEth(target)} ETH</p>
           </div>
@@ -394,7 +421,13 @@ function CampaignCard({
           </div>
           <div className="text-muted-foreground mt-1.5 flex justify-between text-xs">
             <span>{progress}% funded</span>
-            <span>{remainingDays === null ? 'Ended' : `${remainingDays} days left`}</span>
+            <span>
+              {cancelled
+                ? 'Cancelled'
+                : remainingDays === null
+                  ? 'Ended'
+                  : `${remainingDays} days left`}
+            </span>
           </div>
         </div>
 

@@ -9,7 +9,8 @@ This document records the approved scope and a staged approach to stabilize and 
 - **Approved:** All implementation phases and proposed UI/tooling dependencies.
 - **Approved:** Keep category filtering and pagination client-side for the first pass; implement campaign categories and use them for filtering.
 - **Approved:** Support multiple externally hosted image URLs; defer IPFS for the first release.
-- **Approved:** Escrowed contributions, rather than immediate owner payouts, are the target fund-management model. Phase 6 will define withdrawal and refund rules before implementing and deploying that contract change.
+- **Approved:** Escrowed contributions, rather than immediate owner payouts, are the target fund-management model. Phase 6 rules: the owner may withdraw all funds once the goal is reached; if the deadline passes below goal, donors may claim full refunds; owners may cancel before the deadline and before any withdrawal, enabling full donor refunds; donations may overshoot the goal; cancellation is unavailable after withdrawal.
+- **Approved:** If a successful campaign's funds have not been withdrawn by three weeks after its deadline, anyone may pay gas to enable supporter refunds; supporters then claim their own full contributions.
 - **Approved:** Navbar search should instantly filter campaigns on the home page.
 - **Added to approved UI scope:** Define reusable colors as CSS variables exposed through Tailwind utilities; replace the custom modal with a shadcn/ui Dialog, including a polished wallet/connector-selection experience.
 - **IPFS recommendation:** Do not require IPFS, a paid plan, a credit card, or an upload backend for the first release. Use verified external HTTPS image URLs and store URL references on-chain if multi-image support is implemented.
@@ -19,7 +20,7 @@ This document records the approved scope and a staged approach to stabilize and 
 - **Frontend:** React 19, TypeScript 6, Vite 8, React Router 7, Tailwind CSS 4.
 - **Ethereum client:** Wagmi 3, Viem 2, TanStack Query 5. Wagmi's generated ABI/hooks are in `frontend/src/generated.ts`.
 - **Contracts:** Solidity 0.8.38 on Hardhat 3, using `@nomicfoundation/hardhat-toolbox-viem`; deployment configuration includes local Hardhat and Sepolia.
-- **Existing screens:** Home, campaign details, campaign creation, and a placeholder profile page. The desktop sidebar and mobile menu are custom components; styling is predominantly custom Tailwind classes.
+- **Existing screens:** Responsive Home discovery, campaign details/creation, and a connected-wallet profile dashboard. The navbar provides wallet actions, account settings, and theme controls.
 - **Existing avatar treatment:** DiceBear-generated bot avatars are already used for connected accounts and campaign owners.
 - **Tests:** Hardhat's sample Node test currently covers the Counter contract, not Crowdfunding. The frontend package has build/lint scripts but no focused app test suite.
 
@@ -145,17 +146,34 @@ Each phase should preserve existing user-facing behavior unless the change is ex
 - Add persisted dark/light theme selection using the shared CSS variables. Apply it consistently to all pages, including mobile navigation, forms, skeletons, empty states, charts, and dialogs. Respect system preference on first visit and avoid theme flashes where feasible.
 - Add toast notifications for concise transient outcomes, while keeping important errors and transaction states visible in the page for assistive technology and users who miss a toast.
 
+#### Phase 5 implementation status (2026-11-14)
+
+- Added a wallet/account dropdown with address/network details, profile navigation, copy, theme controls, and disconnect; reused a shared connector dialog.
+- Replaced the profile placeholder with wallet activity stats, responsive charts, campaign lists, and loading/error/empty states.
+- Added persisted system-aware light/dark theme handling and Sonner toasts. Updated escrow disclosures to accurately describe the then-current immediate-transfer contract.
+- Fixed TypeScript `useRef` initializers and separated theme helpers/hooks to satisfy lint. Frontend lint, build, and all 15 unit tests passed.
+
 ### Phase 6 — Escrow/refund implementation, contract/indexing, and production hardening
 
-- Implement the approved direction of holding contributions in escrow instead of transferring them immediately to the owner. Before contract changes, define when funds become withdrawable, who may withdraw, whether goal/deadline conditions apply, how partial/full refunds work, how donor balances are accounted for, and what happens on cancellation or failed goals.
-- Document and review these economic/security rules and user-facing terms before implementation. Then add dedicated contract tests and deploy a new contract; do not imply that the current deployment provides escrow or refunds.
-- Keep contract transfers pull-based where appropriate, define state/accounting invariants, and assess reentrancy, failure handling, and gas/storage growth as part of contract design and review.
-
-- Add Crowdfunding-specific tests for creation, deadline validation, donation accounting, transfers, donor history, invalid IDs, and any newly approved contract behavior.
+- Hold contributions in escrow. A campaign succeeds when its goal is reached; the owner may then withdraw the full balance once, including any overshoot, before or after its deadline.
+- If a campaign reaches its deadline below goal, each donor may claim their full contribution. An owner may cancel before the deadline only while funds remain in escrow; cancellation stops further donations and enables full refunds. Cancellation and refund are unavailable after an owner withdrawal. Partial refunds and owner cancellation after the deadline are not supported.
+- Track donor balances separately from the retained historical contribution list. Apply checks-effects-interactions before transfers, revert on failed transfers, and emit indexed campaign/donor events for creation, contributions, cancellation, withdrawals, and refunds.
+- Add Crowdfunding-specific tests for creation, deadline validation, donation accounting, escrow balance, donor history, invalid IDs, successful withdrawals, failed-goal refunds, and owner-cancellation/refund behavior.
 - Review pagination and event requirements against the expected campaign volume and target RPC provider. The current unbounded `getCampaigns()` call and embedded donor arrays are not a scalable index.
-- If approved, add indexed events and bounded read methods for campaign creation/donations; use logs as profile history where reliable, or an indexer if the product needs robust large-scale filtering and analytics.
+- Indexed lifecycle events were added for new contracts. Bounded campaign reads/indexing remain a future scalability improvement if the product outgrows client-side reads.
 - Verify deploy scripts/configuration, generated ABI refresh, chain/address mismatch messaging, and testnet smoke flow. Preserve any deployed contract's behavior; Solidity changes require a new deployment and explicit frontend migration to its address.
 - Run responsive checks at phone/tablet/desktop widths, keyboard-only checks, frontend build/lint, and the complete relevant Hardhat test suite before calling the work complete.
+
+#### Phase 6 implementation status (2026-11-19)
+
+- Implemented the approved escrow rules above. Contributions remain in the contract; owners can withdraw once after goal success; donors can claim full refunds after failed deadlines or owner cancellation before withdrawal. Donations may exceed the goal. Cancellation is only before deadline and payout.
+- Added a permissionless `processRefunds` function for successful campaigns left unpaid for 21 days after deadline. The trigger only enables refund claims; it does not loop over donors. Each supporter claims individually. Withdrawal is disabled once the three-week window has elapsed, so transaction ordering cannot let the owner withdraw after the refund deadline.
+- Added contribution accounting, campaign cancellation/withdrawal/refund state, and indexed `CampaignCreated`, `DonationReceived`, `CampaignCancelled`, `FundsWithdrawn`, `RefundsProcessed`, and `RefundClaimed` events. State is updated before external transfers, and failed transfers revert.
+- Campaign details allow any connected wallet to enable eligible refunds, show the refund window using the contract constant and current chain block, and let supporters claim. Campaign cards and creation/details disclosures show the additional rule. Profile metrics remain labeled as gross historical contributions, including amounts later refunded.
+- Campaign creation autosaves form fields and image URLs locally, asks before restoring or discarding a saved draft, and retains the last submission state/hash without checking the wallet or chain on restore. If submission status is ambiguous, retry requires explicit confirmation after a wallet-activity warning; users can clear the form and start over.
+- Added focused contract coverage for escrow balances, over-goal donations, permissionless refund activation at the three-week boundary, blocked withdrawals after the cutoff, failed-goal refunds, cancellation, and restrictions. Updated the generated Wagmi ABI.
+- Deployed the updated contract to a fresh local address, `0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9`, and updated ignored `frontend/.env` to use it. The prior address `0x5fbdb2315678afecb367f032d93f642f64180aa3` and its two campaigns remain unchanged. The new deployment has zero campaigns; no campaign records were added, and contract tests run on isolated test networks.
+- Validation: 13 Hardhat tests and 17 frontend unit tests pass; lint and production build pass. Existing Vite chunk-size and `node:worker_threads` externalization warnings remain.
 
 ## Library and tooling recommendations
 
@@ -175,27 +193,27 @@ These are approved recommendations. Use shadcn/ui components as the preferred co
 
 Dependency versions should be checked against the installed React 19, Tailwind 4, TypeScript 6, Wagmi 3 and Vite 8 versions at implementation time. Add only libraries needed for an approved phase.
 
-## Contract changes worth considering
+## Contract and indexing status
 
-The current campaign struct supports one image URL and has no category or profile metadata. The campaign array getter returns all campaigns, and campaign structs include all donor addresses/amounts. These are valid for a prototype but constrain discovery/profile growth.
+The active contract stores up to five HTTPS image URLs, holds contributions in escrow, and tracks cancellation, withdrawal, and per-donor refundable balances. It has no on-chain category or profile metadata. The campaign array getter returns every campaign and the donor history arrays, which can constrain discovery/profile growth.
 
-### Recommended minimal contract extension, if separately approved
+### Future scalability improvements
 
-1. Emit `CampaignCreated` and `DonationReceived` events with indexed campaign ID and relevant owner/donor addresses. These events support history and analytics without requiring profile enumeration from a single giant view response.
-2. Add bounded campaign reads such as a start/limit getter, retaining existing getters if compatibility is useful. Treat zero limit, out-of-range start, and maximum batch size explicitly.
-3. Category filtering and pagination are approved as client-side first-pass features; do not add Solidity fields or pagination methods for them in that phase. Category metadata still needs a durable source.
-4. Multi-image support is approved. With the no-IPFS recommendation, store only validated image URL strings on-chain if multiple images are implemented. Bound URL count and length, surface gas estimates, and deploy a new contract; do not put image bytes into Solidity storage.
-5. Escrow is the approved target instead of immediate owner payouts. Withdrawal/refund rules need a separate reviewed design and new deployment; the current contract is not escrow-based.
+1. The contract emits indexed lifecycle events: `CampaignCreated`, `DonationReceived`, `CampaignCancelled`, `FundsWithdrawn`, and `RefundClaimed`. Use logs for campaign/profile history where reliable.
+2. Add bounded campaign reads such as a start/limit getter if contract read volume becomes a bottleneck. Treat zero limit, out-of-range start, and maximum batch size explicitly.
+3. Category filtering and pagination are client-side first-pass features; do not add Solidity fields or pagination methods solely for them. Category metadata still needs a durable source if creator-defined categories become necessary.
+4. Multiple external HTTPS image URLs are implemented with a five-image limit and 512-byte URL limit; image file bytes are not stored on-chain.
+5. Escrow and the 21-day permissionless refund activation are implemented in a fresh local deployment according to the reviewed rules above; further contract changes require a new deployment.
 
 ### Bigger product/economic decisions — defer unless explicitly requested
 
-- **Escrow and withdrawals:** The approved target is to hold donations in escrow rather than pay the owner immediately. The exact withdrawal/refund rules require explicit design, review, contract tests, and a new deployment; the present prototype still pays immediately.
-- **Refunds/campaign cancellation:** Requires clear eligibility, deadline, goal, and accounting rules, not just a UI control.
+- **Escrow extensions:** The approved escrow, withdrawal, cancellation, failed-campaign refund, and three-week permissionless refund rules are implemented. Partial refunds, owner cancellation after the deadline, and post-withdrawal refunds remain unsupported.
+- **Refunds/campaign cancellation:** The approved rules are implemented; further changes require explicit economic review and a new contract deployment.
 - **On-chain identity/profile metadata:** Storing descriptions or profile data on-chain adds permanent cost; consider off-chain/IPFS metadata with content-addressed references instead.
 - **Image uploads/IPFS:** Multi-image URL support is approved; IPFS uploads are deferred. Verify URLs at creation time, while making clear that verification does not guarantee future availability.
 - **User-generated categories and rich analytics:** Require an indexing strategy if filters and charts must remain fast across many campaigns.
 
-Any Solidity change means a new contract deployment; the app cannot update an already deployed contract in place. We should not make these changes without agreeing on migration and testnet verification first.
+Any Solidity change means a new contract deployment; the app cannot update an already deployed contract in place. Further economic changes require review before implementation and migration/testnet verification.
 
 ## Final IPFS recommendation: defer it for the first release
 
@@ -224,7 +242,7 @@ The installed frontend already depends on **Wagmi v3**, and the contract workspa
 
 ## Decisions for review
 
-The phases, dependencies, client-side first pass for categories/pagination, multi-image scope, escrow/refund design scope, instant home filtering, and the no-IPFS URL-storage recommendation are recorded as approved scope. Phase 3 uses deterministic category inference from title/description without contract changes. Review the gas implications of storing multiple URL strings on-chain before Phase 4 changes the contract.
+The phases, dependencies, client-side first pass for categories/pagination, multi-image scope, escrow/refund rules, instant home filtering, and the no-IPFS URL-storage recommendation are recorded as approved scope. Phase 3 uses deterministic category inference from title/description without contract changes. The active local deployment is `0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9`; prior local deployments and campaign data remain unchanged.
 
 ## Definition of done
 

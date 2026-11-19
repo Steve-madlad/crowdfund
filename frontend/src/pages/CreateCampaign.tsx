@@ -2,7 +2,20 @@ import { money } from '@/assets';
 import FormInput from '@/components/FormInput';
 import WalletConnectDialog from '@/components/WalletConnectDialog';
 import Button from '@/components/ui/Button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/Input';
+import {
+  CAMPAIGN_DRAFT_STORAGE_KEY,
+  parseCampaignDraft,
+  type CampaignDraft,
+  type CampaignSubmissionState,
+} from '@/lib/campaignDraft';
 import {
   MAX_CAMPAIGN_IMAGES,
   MAX_IMAGE_URL_BYTES,
@@ -10,14 +23,14 @@ import {
   verifyImageUrl,
 } from '@/lib/imageUrls';
 import { dateInputToDeadline, formatEth } from '@/lib/utils';
+import { formatWeb3Error } from '@/lib/web3Errors';
 import { ArrowDown, ArrowUp, ImageOff, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import { parseEther } from 'viem';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { parseEther, type Address } from 'viem';
 import {
   useConnection,
   usePublicClient,
   useReadContract,
-  useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi';
 import { toast } from 'sonner';
@@ -38,6 +51,12 @@ interface ImageField {
   url: string;
 }
 
+type CreateCampaignArgs = readonly [Address, string, string, bigint, bigint, string[]];
+interface CampaignDraftContext {
+  accountAddress?: string;
+  chainId?: number;
+}
+
 type ImageStatus = 'idle' | 'checking' | 'valid' | 'invalid';
 interface ImageStatusRecord {
   url: string;
@@ -53,7 +72,22 @@ function getImageStatus(
   return field.url.trim() ? 'checking' : 'idle';
 }
 
+function readSavedCampaignDraft(): { draft?: CampaignDraft; error?: string } {
+  try {
+    const serialized = window.localStorage.getItem(CAMPAIGN_DRAFT_STORAGE_KEY);
+    if (serialized === null) return {};
+    const draft = parseCampaignDraft(serialized);
+    return draft
+      ? { draft }
+      : { error: 'A saved campaign draft could not be read and will not be restored.' };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Browser storage is unavailable.';
+    return { error: `A saved draft could not be checked: ${message}` };
+  }
+}
+
 export default function CreateCampaign() {
+  const [initialDraftState] = useState(readSavedCampaignDraft);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState<FormFields>({
     title: '',
@@ -66,11 +100,31 @@ export default function CreateCampaign() {
   const [formError, setFormError] = useState<string>();
   const [estimatedFee, setEstimatedFee] = useState<string>();
   const [feeEstimateError, setFeeEstimateError] = useState<string>();
-  const [hash, setHash] = useState<`0x${string}`>();
-  const completedToastHash = useRef<string | undefined>(undefined);
+  const [submissionHash, setSubmissionHash] = useState<`0x${string}`>();
+  const [submissionState, setSubmissionState] = useState<CampaignSubmissionState>('draft');
+  const [submissionContext, setSubmissionContext] = useState<CampaignDraftContext>(() => ({
+    ...(initialDraftState.draft?.accountAddress
+      ? { accountAddress: initialDraftState.draft.accountAddress }
+      : {}),
+    ...(initialDraftState.draft?.chainId ? { chainId: initialDraftState.draft.chainId } : {}),
+  }));
+  const [draftReady, setDraftReady] = useState(!initialDraftState.draft);
+  const [recoveryDraft, setRecoveryDraft] = useState<CampaignDraft | undefined>(
+    initialDraftState.draft,
+  );
+  const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(Boolean(initialDraftState.draft));
+  const [draftStorageError, setDraftStorageError] = useState(initialDraftState.error);
+  const [needsSubmissionReview, setNeedsSubmissionReview] = useState(false);
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
+  const [pendingCreateArgs, setPendingCreateArgs] = useState<CreateCampaignArgs>();
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [receiptStatus, setReceiptStatus] = useState<'success' | 'reverted'>();
+  const [receiptError, setReceiptError] = useState<string>();
   const nextImageId = useRef(1);
   const feeEstimateRequestId = useRef(0);
-  const { address, isConnected } = useConnection();
+  const draftPersistenceInitialized = useRef(false);
+  const draftStorageNotificationShown = useRef(false);
+  const { address, chainId, isConnected } = useConnection();
   const publicClient = usePublicClient();
   const {
     mutate: createCampaign,
@@ -82,30 +136,68 @@ export default function CreateCampaign() {
     abi: crowdFundingAbi,
     functionName: 'getCampaigns',
   });
-  const {
-    data: receipt,
-    isLoading: isConfirming,
-    isSuccess: isConfirmed,
-    error: receiptError,
-  } = useWaitForTransactionReceipt({
-    hash,
-    query: { enabled: Boolean(hash) },
-  });
+  const persistDraft = useCallback(
+    (
+      state: CampaignSubmissionState,
+      transactionHash?: `0x${string}`,
+      context?: CampaignDraftContext,
+    ) => {
+      try {
+        const hasContent =
+          Object.values(form).some((value) => value.trim().length > 0) ||
+          imageFields.some((field) => field.url.trim().length > 0);
+        const draftContext =
+          context ?? (state === 'draft' ? { accountAddress: address, chainId } : submissionContext);
+        if (!hasContent && state === 'draft') {
+          window.localStorage.removeItem(CAMPAIGN_DRAFT_STORAGE_KEY);
+          return undefined;
+        }
 
-  useEffect(() => {
-    if (isConfirmed && receipt?.status === 'success') {
-      void refetchCampaigns();
+        const draft: CampaignDraft = {
+          version: 1,
+          form,
+          imageUrls: imageFields.map(({ url }) => url),
+          submissionState: state,
+          updatedAt: Date.now(),
+          ...(transactionHash ? { transactionHash } : {}),
+          ...(draftContext.accountAddress ? { accountAddress: draftContext.accountAddress } : {}),
+          ...(draftContext.chainId ? { chainId: draftContext.chainId } : {}),
+        };
+        window.localStorage.setItem(CAMPAIGN_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+        return undefined;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Browser storage is unavailable.';
+        return `Draft could not be saved in this browser: ${message}`;
+      }
+    },
+    [address, chainId, form, imageFields, submissionContext],
+  );
+
+  const clearDraft = useCallback(() => {
+    try {
+      window.localStorage.removeItem(CAMPAIGN_DRAFT_STORAGE_KEY);
+      return undefined;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Browser storage is unavailable.';
+      return `Saved draft could not be cleared: ${message}`;
     }
-  }, [isConfirmed, receipt?.status, refetchCampaigns]);
+  }, []);
 
   useEffect(() => {
-    if (!hash || !receipt) return;
-    if (completedToastHash.current === hash) return;
+    if (!draftReady) return;
+    if (!draftPersistenceInitialized.current) {
+      draftPersistenceInitialized.current = true;
+      return;
+    }
 
-    completedToastHash.current = hash;
-    if (receipt.status === 'success') toast.success('Campaign created successfully.');
-    else toast.error('The campaign transaction reverted.');
-  }, [hash, receipt]);
+    const error = persistDraft(submissionState, submissionHash);
+    if (error && !draftStorageNotificationShown.current) {
+      toast.error(error);
+      draftStorageNotificationShown.current = true;
+    } else if (!error) {
+      draftStorageNotificationShown.current = false;
+    }
+  }, [draftReady, form, imageFields, persistDraft, submissionHash, submissionState]);
 
   useEffect(() => {
     let active = true;
@@ -144,6 +236,7 @@ export default function CreateCampaign() {
   const handleFormChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
     setFormError(undefined);
+    setDraftStorageError(undefined);
     resetFeeEstimate();
   };
 
@@ -152,6 +245,7 @@ export default function CreateCampaign() {
       current.map((field) => (field.id === id ? { ...field, url } : field)),
     );
     setFormError(undefined);
+    setDraftStorageError(undefined);
     resetFeeEstimate();
   };
 
@@ -163,7 +257,114 @@ export default function CreateCampaign() {
       [reordered[index], reordered[targetIndex]] = [reordered[targetIndex], reordered[index]];
       return reordered;
     });
+    setDraftStorageError(undefined);
     resetFeeEstimate();
+  };
+
+  const submitCampaign = (args: CreateCampaignArgs) => {
+    const attemptContext: CampaignDraftContext = {
+      accountAddress: args[0],
+      ...(chainId ? { chainId } : {}),
+    };
+    setNeedsSubmissionReview(false);
+    setDuplicateDialogOpen(false);
+    setPendingCreateArgs(undefined);
+    setReceiptStatus(undefined);
+    setReceiptError(undefined);
+    setSubmissionHash(undefined);
+    setSubmissionContext(attemptContext);
+    setSubmissionState('wallet-requested');
+    const saveError = persistDraft('wallet-requested', undefined, attemptContext);
+    setDraftStorageError(saveError);
+    setEstimatedFee(undefined);
+    setFeeEstimateError(undefined);
+    const estimateRequestId = ++feeEstimateRequestId.current;
+
+    createCampaign(
+      {
+        address: contractAddress,
+        abi: crowdFundingAbi,
+        functionName: 'createCampaign',
+        args,
+      },
+      {
+        onSuccess: (submittedHash) => {
+          setSubmissionHash(submittedHash);
+          setSubmissionState('hash-received');
+          const saveError = persistDraft('hash-received', submittedHash, attemptContext);
+          setDraftStorageError(saveError);
+          if (!publicClient) {
+            setNeedsSubmissionReview(true);
+            setReceiptError('A public client is unavailable; this browser cannot check the receipt.');
+            return;
+          }
+
+          setIsConfirming(true);
+          void publicClient
+            .waitForTransactionReceipt({ hash: submittedHash })
+            .then((transactionReceipt) => {
+            setIsConfirming(false);
+            setReceiptStatus(transactionReceipt.status);
+            if (transactionReceipt.status === 'success') {
+              toast.success('Campaign created successfully.');
+              void refetchCampaigns();
+              const clearError = clearDraft();
+              setDraftStorageError(clearError);
+              setForm({ title: '', description: '', target: '', deadline: '' });
+              setImageFields([{ id: 0, url: '' }]);
+              setSubmissionState('draft');
+              setSubmissionHash(undefined);
+              setSubmissionContext({});
+              setNeedsSubmissionReview(false);
+            } else {
+              toast.error('The campaign transaction reverted.');
+              setSubmissionState('reverted');
+              setNeedsSubmissionReview(false);
+              const saveError = persistDraft('reverted', submittedHash, attemptContext);
+              setDraftStorageError(saveError);
+            }
+            })
+            .catch((error: unknown) => {
+            setIsConfirming(false);
+            setNeedsSubmissionReview(true);
+            const message = formatWeb3Error(error);
+            setReceiptError(message);
+            toast.error(`Unable to confirm the campaign transaction: ${message}`);
+            });
+        },
+        onError: (error) => {
+          setSubmissionState('request-error');
+          setNeedsSubmissionReview(true);
+          const saveError = persistDraft('request-error', undefined, attemptContext);
+          setDraftStorageError(saveError);
+          toast.error(`Campaign creation failed: ${formatWeb3Error(error)}`);
+        },
+      },
+    );
+
+    if (!publicClient) {
+      setFeeEstimateError('A public client is unavailable. Review the fee shown by your wallet.');
+      return;
+    }
+
+    void Promise.all([
+      publicClient.estimateContractGas({
+        address: contractAddress,
+        abi: crowdFundingAbi,
+        functionName: 'createCampaign',
+        args,
+        account: address,
+      }),
+      publicClient.getGasPrice(),
+    ])
+      .then(([estimatedGas, gasPrice]) => {
+        if (feeEstimateRequestId.current !== estimateRequestId) return;
+        setEstimatedFee(`${formatEth(estimatedGas * gasPrice)} ETH`);
+      })
+      .catch((error: unknown) => {
+        if (feeEstimateRequestId.current !== estimateRequestId) return;
+        setFeeEstimateError(formatWeb3Error(error));
+      });
   };
 
   const handleSubmit = (event: React.SubmitEvent<HTMLFormElement>) => {
@@ -227,50 +428,83 @@ export default function CreateCampaign() {
     }
 
     const args = [address, title, description, target, deadline, images] as const;
-    setHash(undefined);
-    setEstimatedFee(undefined);
-    setFeeEstimateError(undefined);
-    const estimateRequestId = ++feeEstimateRequestId.current;
-
-    createCampaign(
-      {
-        address: contractAddress,
-        abi: crowdFundingAbi,
-        functionName: 'createCampaign',
-        args,
-      },
-      {
-        onSuccess: setHash,
-        onError: (error) => toast.error(`Campaign creation failed: ${error.message}`),
-      },
-    );
-
-    if (!publicClient) {
-      setFeeEstimateError('A public client is unavailable. Review the fee shown by your wallet.');
+    if (needsSubmissionReview) {
+      setPendingCreateArgs(args);
+      setDuplicateDialogOpen(true);
       return;
     }
-
-    void Promise.all([
-      publicClient.estimateContractGas({
-        address: contractAddress,
-        abi: crowdFundingAbi,
-        functionName: 'createCampaign',
-        args,
-        account: address,
-      }),
-      publicClient.getGasPrice(),
-    ])
-      .then(([estimatedGas, gasPrice]) => {
-        if (feeEstimateRequestId.current !== estimateRequestId) return;
-        setEstimatedFee(`${formatEth(estimatedGas * gasPrice)} ETH`);
-      })
-      .catch((error: unknown) => {
-        if (feeEstimateRequestId.current !== estimateRequestId) return;
-        setFeeEstimateError(
-          error instanceof Error ? error.message : 'An unknown network error occurred.',
-        );
-      });
+    submitCampaign(args);
   };
+
+  const restoreDraft = (draft: CampaignDraft) => {
+    const restoredImages = draft.imageUrls.map((url, id) => ({ id, url }));
+    nextImageId.current = restoredImages.length;
+    setForm(draft.form);
+    setImageFields(restoredImages);
+    setSubmissionState(draft.submissionState);
+    setSubmissionHash(draft.transactionHash);
+    setSubmissionContext({
+      ...(draft.accountAddress ? { accountAddress: draft.accountAddress } : {}),
+      ...(draft.chainId ? { chainId: draft.chainId } : {}),
+    });
+    setNeedsSubmissionReview(
+      draft.submissionState === 'wallet-requested' ||
+        draft.submissionState === 'request-error' ||
+        draft.submissionState === 'hash-received',
+    );
+    setRecoveryDraft(undefined);
+    setRecoveryDialogOpen(false);
+    setDraftReady(true);
+  };
+
+  const discardRecoveredDraft = () => {
+    const error = clearDraft();
+    setDraftStorageError(error);
+    setRecoveryDraft(undefined);
+    setRecoveryDialogOpen(false);
+    setDraftReady(true);
+  };
+
+  const clearCurrentDraft = () => {
+    const error = clearDraft();
+    setDraftStorageError(error);
+    setForm({ title: '', description: '', target: '', deadline: '' });
+    setImageFields([{ id: 0, url: '' }]);
+    nextImageId.current = 1;
+    setSubmissionState('draft');
+    setSubmissionHash(undefined);
+    setSubmissionContext({});
+    setNeedsSubmissionReview(false);
+    setFormError(undefined);
+    resetFeeEstimate();
+  };
+
+  const hasDraftContent =
+    Object.values(form).some((value) => value.trim().length > 0) ||
+    imageFields.some((field) => field.url.trim().length > 0);
+
+  const submissionStatusMessage = {
+    draft: '',
+    'wallet-requested':
+      'A wallet request was started, but this browser did not record a transaction hash. The result is unknown; the request may still be open or may have been submitted.',
+    'request-error':
+      'The wallet or network reported an error, but this browser cannot confirm whether a transaction was submitted.',
+    'hash-received':
+      'A transaction hash was recorded, but this browser did not record a confirmation. It will not check the chain automatically.',
+    reverted: 'The last recorded campaign transaction reverted.',
+  }[submissionState];
+  const recoveryStatusMessage = recoveryDraft
+    ? {
+        draft: 'No campaign submission was started according to the saved browser data.',
+        'wallet-requested':
+          'A wallet request was started, but no transaction hash was saved. It may still be open or may already have been submitted.',
+        'request-error':
+          'The wallet or network reported an error, but the saved browser data cannot confirm whether the transaction was submitted.',
+        'hash-received':
+          'A transaction hash was saved, but no confirmation was recorded. The app will not check the chain when restoring.',
+        reverted: 'A reverted transaction receipt was recorded for the last attempt.',
+      }[recoveryDraft.submissionState]
+    : '';
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -285,6 +519,46 @@ export default function CreateCampaign() {
           Share the story, set a clear goal, and give people a reason to get involved.
         </p>
       </header>
+
+      {draftStorageError && (
+        <p role="alert" className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {draftStorageError}
+        </p>
+      )}
+      {submissionStatusMessage && (
+        <section
+          aria-live="polite"
+          className={`mb-4 rounded-xl border p-4 ${
+            needsSubmissionReview
+              ? 'border-warning/30 bg-warning/5 text-foreground'
+              : submissionState === 'reverted'
+                ? 'border-destructive/30 bg-destructive/5 text-destructive'
+                : 'border-border bg-muted text-foreground'
+          }`}
+        >
+          <p className="text-sm leading-6">{submissionStatusMessage}</p>
+          {submissionState === 'hash-received' && submissionHash && (
+            <p className="mt-2 break-all font-mono text-xs">{submissionHash}</p>
+          )}
+          {needsSubmissionReview && (
+            <p className="mt-2 text-sm leading-6">
+              Check your wallet activity before retrying to avoid creating a duplicate. A campaign
+              may only be cancellable before its deadline and before funds are withdrawn; cancellation
+              does not erase it from the chain.
+            </p>
+          )}
+          {hasDraftContent && (
+            <Button
+              type="button"
+              disabled={isBusy}
+              onClick={clearCurrentDraft}
+              className="mt-3 min-h-9 border border-border bg-background text-sm text-foreground hover:bg-muted"
+            >
+              Clear draft and start over
+            </Button>
+          )}
+        </section>
+      )}
 
       <form onSubmit={handleSubmit} className="grid gap-5">
         <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-8">
@@ -366,9 +640,11 @@ export default function CreateCampaign() {
           <div className="mt-5 flex items-start gap-3 rounded-xl bg-accent/10 p-4">
             <img src={money} alt="" aria-hidden="true" className="size-8 shrink-0 object-contain" />
             <p className="text-sm leading-6 text-soft-foreground">
-              Escrowed contributions with defined withdrawal and refund rules are the approved
-              direction for a future contract phase. This prototype still transfers contributions
-              immediately to the owner, so do not use it for a live fundraiser.
+              Contributions are held in escrow. The owner can withdraw after the goal is reached.
+              If the goal is not reached by the deadline, or the owner cancels before the deadline
+              and before withdrawing, supporters can claim full refunds. If an unpaid campaign has
+              reached its goal but the owner has not withdrawn within three weeks after the deadline,
+              anyone can pay gas to enable full refunds.
             </p>
           </div>
         </section>
@@ -521,12 +797,12 @@ export default function CreateCampaign() {
         )}
         {createCampaignError && (
           <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-            Campaign creation failed: {createCampaignError.message}
+            Campaign creation failed: {formatWeb3Error(createCampaignError)}
           </p>
         )}
         {receiptError && (
           <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-            Unable to confirm the transaction: {receiptError.message}
+            Unable to confirm the transaction: {receiptError}
           </p>
         )}
         {estimatedFee && (
@@ -541,33 +817,158 @@ export default function CreateCampaign() {
             before approval.
           </p>
         )}
-        {isConfirmed && receipt?.status === 'success' && (
+        {receiptStatus === 'success' && (
           <p role="status" className="rounded-lg border border-success/30 bg-success/5 p-3 text-sm text-success" aria-live="polite">
             Campaign created successfully.
           </p>
         )}
-        {isConfirmed && receipt?.status === 'reverted' && (
+        {receiptStatus === 'reverted' && (
           <p role="alert" className="text-sm text-destructive">
             The campaign transaction reverted.
           </p>
         )}
 
-        <Button
-          disabled={isBusy}
-          className="flex w-full items-center justify-center gap-3 bg-primary text-primary-foreground hover:opacity-90 sm:w-auto sm:min-w-64"
-          aria-busy={isBusy}
-          type="submit"
-        >
-          {createCampaignLoading
-            ? 'Waiting for wallet…'
-            : isConfirming
-              ? 'Confirming transaction…'
-              : 'Create campaign'}
-          {isBusy && (
-            <img alt="" aria-hidden="true" className="size-7 grayscale" src={loader} />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Button
+            disabled={isBusy}
+            className="flex w-full items-center justify-center gap-3 bg-primary text-primary-foreground hover:opacity-90 sm:w-auto sm:min-w-64"
+            aria-busy={isBusy}
+            type="submit"
+          >
+            {createCampaignLoading
+              ? 'Waiting for wallet…'
+              : isConfirming
+                ? 'Confirming transaction…'
+                : 'Create campaign'}
+            {isBusy && (
+              <img alt="" aria-hidden="true" className="size-7 grayscale" src={loader} />
+            )}
+          </Button>
+          {hasDraftContent && (
+            <Button
+              type="button"
+              disabled={isBusy}
+              onClick={clearCurrentDraft}
+              className="min-h-11 border border-border bg-background text-foreground hover:bg-muted"
+            >
+              Clear form
+            </Button>
           )}
-        </Button>
+        </div>
       </form>
+
+      <Dialog
+        open={recoveryDialogOpen}
+        onOpenChange={(open) => {
+          if (open || !recoveryDraft) setRecoveryDialogOpen(open);
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          onEscapeKeyDown={(event) => {
+            if (recoveryDraft) event.preventDefault();
+          }}
+          onPointerDownOutside={(event) => {
+            if (recoveryDraft) event.preventDefault();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Saved campaign draft found</DialogTitle>
+            <DialogDescription>
+              Restore the saved fields, or discard them and start with a blank form.
+            </DialogDescription>
+          </DialogHeader>
+          {recoveryDraft && (
+            <div className="grid gap-3">
+              <p className="rounded-lg bg-muted p-3 text-sm leading-6 text-foreground">
+                {recoveryStatusMessage}
+              </p>
+              {recoveryDraft.submissionState !== 'draft' &&
+                recoveryDraft.submissionState !== 'reverted' && (
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    The app cannot determine whether this request is still pending or created a
+                    campaign. Check your wallet activity before submitting again. Restoring this
+                    draft does not submit anything or check the chain.
+                  </p>
+                )}
+              {recoveryDraft.transactionHash && (
+                <p className="break-all rounded-lg border border-border p-3 font-mono text-xs text-muted-foreground">
+                  Saved transaction hash: {recoveryDraft.transactionHash}
+                </p>
+              )}
+              {recoveryDraft.accountAddress && (
+                <p className="break-all text-xs text-muted-foreground">
+                  Wallet used when saved: {recoveryDraft.accountAddress}
+                  {recoveryDraft.chainId ? ` · chain ${recoveryDraft.chainId}` : ''}
+                </p>
+              )}
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  onClick={discardRecoveredDraft}
+                  className="min-h-10 border border-border bg-background text-foreground hover:bg-muted"
+                >
+                  Discard draft
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => restoreDraft(recoveryDraft)}
+                  className="min-h-10 bg-primary text-primary-foreground hover:opacity-90"
+                >
+                  Restore draft
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={duplicateDialogOpen}
+        onOpenChange={(open) => {
+          setDuplicateDialogOpen(open);
+          if (!open) setPendingCreateArgs(undefined);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Check for a previous submission</DialogTitle>
+            <DialogDescription>
+              The saved status does not establish whether the campaign was created.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <p className="text-sm leading-6 text-muted-foreground">
+              Check your wallet activity before proceeding. The app will not search the chain for a
+              matching transaction. If you choose to continue, this form will submit a new campaign
+              using the current fields. A duplicate may only be cancellable before its deadline and
+              before funds are withdrawn; cancellation does not remove it from the chain.
+            </p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                onClick={() => {
+                  setDuplicateDialogOpen(false);
+                  setPendingCreateArgs(undefined);
+                }}
+                className="min-h-10 border border-border bg-background text-foreground hover:bg-muted"
+              >
+                Go back
+              </Button>
+              <Button
+                type="button"
+                disabled={!pendingCreateArgs || isBusy}
+                onClick={() => {
+                  if (pendingCreateArgs) submitCampaign(pendingCreateArgs);
+                }}
+                className="min-h-10 bg-primary text-primary-foreground hover:opacity-90"
+              >
+                Submit another campaign
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <WalletConnectDialog open={isModalOpen} onOpenChange={setIsModalOpen} />
     </div>

@@ -2,6 +2,7 @@ import {
   createUseReadContract,
   createUseWriteContract,
   createUseSimulateContract,
+  createUseWatchContractEvent,
 } from 'wagmi/codegen'
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -9,6 +10,156 @@ import {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 export const crowdFundingAbi = [
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'campaignId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'owner',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+    ],
+    name: 'CampaignCancelled',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'campaignId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'owner',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'target',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'deadline',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'CampaignCreated',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'campaignId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'donor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'amount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+      {
+        name: 'totalCollected',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'DonationReceived',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'campaignId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'owner',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'amount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'FundsWithdrawn',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'campaignId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'donor',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+      {
+        name: 'amount',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: false,
+      },
+    ],
+    name: 'RefundClaimed',
+  },
+  {
+    type: 'event',
+    anonymous: false,
+    inputs: [
+      {
+        name: 'campaignId',
+        internalType: 'uint256',
+        type: 'uint256',
+        indexed: true,
+      },
+      {
+        name: 'caller',
+        internalType: 'address',
+        type: 'address',
+        indexed: true,
+      },
+    ],
+    name: 'RefundsProcessed',
+  },
   {
     type: 'function',
     inputs: [],
@@ -25,6 +176,13 @@ export const crowdFundingAbi = [
   },
   {
     type: 'function',
+    inputs: [],
+    name: 'REFUND_DELAY',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     inputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     name: 'campaigns',
     outputs: [
@@ -35,7 +193,34 @@ export const crowdFundingAbi = [
       { name: 'deadline', internalType: 'uint256', type: 'uint256' },
       { name: 'amountCollected', internalType: 'uint256', type: 'uint256' },
       { name: 'image', internalType: 'string', type: 'string' },
+      { name: 'cancelled', internalType: 'bool', type: 'bool' },
+      { name: 'withdrawn', internalType: 'bool', type: 'bool' },
+      { name: 'refundsEnabled', internalType: 'bool', type: 'bool' },
     ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '_id', internalType: 'uint256', type: 'uint256' }],
+    name: 'cancelCampaign',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '_id', internalType: 'uint256', type: 'uint256' }],
+    name: 'claimRefund',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [
+      { name: '', internalType: 'uint256', type: 'uint256' },
+      { name: '', internalType: 'address', type: 'address' },
+    ],
+    name: 'contributions',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -83,6 +268,9 @@ export const crowdFundingAbi = [
           { name: 'deadline', internalType: 'uint256', type: 'uint256' },
           { name: 'amountCollected', internalType: 'uint256', type: 'uint256' },
           { name: 'image', internalType: 'string', type: 'string' },
+          { name: 'cancelled', internalType: 'bool', type: 'bool' },
+          { name: 'withdrawn', internalType: 'bool', type: 'bool' },
+          { name: 'refundsEnabled', internalType: 'bool', type: 'bool' },
           {
             name: 'additionalImages',
             internalType: 'string[]',
@@ -111,6 +299,20 @@ export const crowdFundingAbi = [
     name: 'numberOfCampaigns',
     outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '_id', internalType: 'uint256', type: 'uint256' }],
+    name: 'processRefunds',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: '_id', internalType: 'uint256', type: 'uint256' }],
+    name: 'withdrawFunds',
+    outputs: [],
+    stateMutability: 'nonpayable',
   },
 ] as const
 
@@ -144,11 +346,29 @@ export const useReadCrowdFundingMaxImageUrlBytes =
   })
 
 /**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"REFUND_DELAY"`
+ */
+export const useReadCrowdFundingRefundDelay =
+  /*#__PURE__*/ createUseReadContract({
+    abi: crowdFundingAbi,
+    functionName: 'REFUND_DELAY',
+  })
+
+/**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"campaigns"`
  */
 export const useReadCrowdFundingCampaigns = /*#__PURE__*/ createUseReadContract(
   { abi: crowdFundingAbi, functionName: 'campaigns' },
 )
+
+/**
+ * Wraps __{@link useReadContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"contributions"`
+ */
+export const useReadCrowdFundingContributions =
+  /*#__PURE__*/ createUseReadContract({
+    abi: crowdFundingAbi,
+    functionName: 'contributions',
+  })
 
 /**
  * Wraps __{@link useReadContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"getCampaignImages"`
@@ -194,6 +414,24 @@ export const useWriteCrowdFunding = /*#__PURE__*/ createUseWriteContract({
 })
 
 /**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"cancelCampaign"`
+ */
+export const useWriteCrowdFundingCancelCampaign =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: crowdFundingAbi,
+    functionName: 'cancelCampaign',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"claimRefund"`
+ */
+export const useWriteCrowdFundingClaimRefund =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: crowdFundingAbi,
+    functionName: 'claimRefund',
+  })
+
+/**
  * Wraps __{@link useWriteContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"createCampaign"`
  */
 export const useWriteCrowdFundingCreateCampaign =
@@ -212,11 +450,47 @@ export const useWriteCrowdFundingDonateToCampaign =
   })
 
 /**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"processRefunds"`
+ */
+export const useWriteCrowdFundingProcessRefunds =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: crowdFundingAbi,
+    functionName: 'processRefunds',
+  })
+
+/**
+ * Wraps __{@link useWriteContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"withdrawFunds"`
+ */
+export const useWriteCrowdFundingWithdrawFunds =
+  /*#__PURE__*/ createUseWriteContract({
+    abi: crowdFundingAbi,
+    functionName: 'withdrawFunds',
+  })
+
+/**
  * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link crowdFundingAbi}__
  */
 export const useSimulateCrowdFunding = /*#__PURE__*/ createUseSimulateContract({
   abi: crowdFundingAbi,
 })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"cancelCampaign"`
+ */
+export const useSimulateCrowdFundingCancelCampaign =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: crowdFundingAbi,
+    functionName: 'cancelCampaign',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"claimRefund"`
+ */
+export const useSimulateCrowdFundingClaimRefund =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: crowdFundingAbi,
+    functionName: 'claimRefund',
+  })
 
 /**
  * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"createCampaign"`
@@ -234,4 +508,82 @@ export const useSimulateCrowdFundingDonateToCampaign =
   /*#__PURE__*/ createUseSimulateContract({
     abi: crowdFundingAbi,
     functionName: 'donateToCampaign',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"processRefunds"`
+ */
+export const useSimulateCrowdFundingProcessRefunds =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: crowdFundingAbi,
+    functionName: 'processRefunds',
+  })
+
+/**
+ * Wraps __{@link useSimulateContract}__ with `abi` set to __{@link crowdFundingAbi}__ and `functionName` set to `"withdrawFunds"`
+ */
+export const useSimulateCrowdFundingWithdrawFunds =
+  /*#__PURE__*/ createUseSimulateContract({
+    abi: crowdFundingAbi,
+    functionName: 'withdrawFunds',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link crowdFundingAbi}__
+ */
+export const useWatchCrowdFundingEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({ abi: crowdFundingAbi })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link crowdFundingAbi}__ and `eventName` set to `"CampaignCancelled"`
+ */
+export const useWatchCrowdFundingCampaignCancelledEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: crowdFundingAbi,
+    eventName: 'CampaignCancelled',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link crowdFundingAbi}__ and `eventName` set to `"CampaignCreated"`
+ */
+export const useWatchCrowdFundingCampaignCreatedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: crowdFundingAbi,
+    eventName: 'CampaignCreated',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link crowdFundingAbi}__ and `eventName` set to `"DonationReceived"`
+ */
+export const useWatchCrowdFundingDonationReceivedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: crowdFundingAbi,
+    eventName: 'DonationReceived',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link crowdFundingAbi}__ and `eventName` set to `"FundsWithdrawn"`
+ */
+export const useWatchCrowdFundingFundsWithdrawnEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: crowdFundingAbi,
+    eventName: 'FundsWithdrawn',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link crowdFundingAbi}__ and `eventName` set to `"RefundClaimed"`
+ */
+export const useWatchCrowdFundingRefundClaimedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: crowdFundingAbi,
+    eventName: 'RefundClaimed',
+  })
+
+/**
+ * Wraps __{@link useWatchContractEvent}__ with `abi` set to __{@link crowdFundingAbi}__ and `eventName` set to `"RefundsProcessed"`
+ */
+export const useWatchCrowdFundingRefundsProcessedEvent =
+  /*#__PURE__*/ createUseWatchContractEvent({
+    abi: crowdFundingAbi,
+    eventName: 'RefundsProcessed',
   })

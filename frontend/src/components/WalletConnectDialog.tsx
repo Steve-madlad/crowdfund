@@ -1,4 +1,5 @@
 import Button from '@/components/ui/Button';
+import { formatWeb3Error } from '@/lib/web3Errors';
 import {
   Dialog,
   DialogContent,
@@ -63,7 +64,8 @@ export default function WalletConnectDialog({
                         toast.success(`${connector.name} connected.`);
                         onOpenChange(false);
                       },
-                      onError: (connectError) => toast.error(connectError.message),
+                      onError: (connectError) =>
+                        toast.error(`Wallet connection failed: ${formatWeb3Error(connectError)}`),
                     },
                   );
                 }}
@@ -100,7 +102,7 @@ export default function WalletConnectDialog({
 
         {error && (
           <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-            Wallet connection failed: {error.message}
+            Wallet connection failed: {formatWeb3Error(error)}
           </p>
         )}
       </DialogContent>
