@@ -198,7 +198,7 @@ export default function AccountMenu({ onRequestConnect, className }: AccountMenu
 
         {isConnected && (
           <p className="px-2.5 pt-1 pb-1 text-[11px] leading-4 text-muted-foreground">
-            Disconnecting clears the connection here; it does not revoke wallet site permissions.
+            Disconnecting removes your wallet connection but doesn't revoke this site's permissions in MetaMask.
           </p>
         )}
       </DropdownMenuContent>

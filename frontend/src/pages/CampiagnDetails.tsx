@@ -1,8 +1,14 @@
 import Button from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import CampaignImage from '@/components/CampaignImage';
 import { CampaignDetailsSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { EmptyState, ErrorState } from '@/components/ui/StateMessage';
-import { calculateBarPercentage, daysLeft, formatEth } from '@/lib/utils';
+import {
+  calculateBarPercentage,
+  daysLeft,
+  formatEth,
+  formatProgressPercent,
+} from '@/lib/utils';
 import { formatWeb3Error } from '@/lib/web3Errors';
 import WalletConnectDialog from '@/components/WalletConnectDialog';
 import confetti from 'canvas-confetti';
@@ -11,7 +17,6 @@ import {
   Check,
   Copy,
   ExternalLink,
-  ImageOff,
   RotateCcw,
   Trophy,
 } from 'lucide-react';
@@ -61,7 +66,6 @@ export default function CampiagnDetails() {
     campaignId: '',
     index: 0,
   });
-  const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
   const [shareStatus, setShareStatus] = useState<string>();
   const previousGoalState = useRef<{ campaignId: string; reached: boolean } | null>(null);
   const completedTransactionToastHash = useRef<string | undefined>(undefined);
@@ -157,6 +161,9 @@ export default function CampiagnDetails() {
   const progress = campaignDetails
     ? calculateBarPercentage(campaignDetails.target, campaignDetails.amountCollected)
     : 0;
+  const progressLabel = campaignDetails
+    ? formatProgressPercent(campaignDetails.target, campaignDetails.amountCollected)
+    : '0%';
   const goalReached = Boolean(
     campaignDetails &&
     campaignDetails.target > 0n &&
@@ -282,8 +289,8 @@ export default function CampiagnDetails() {
     const previous = previousGoalState.current;
 
     if (
-      previous?.campaignId === campaignKey &&
-      !previous.reached &&
+      ((!previous || previous.campaignId !== campaignKey) ||
+        (previous.campaignId === campaignKey && !previous.reached)) &&
       reached &&
       !window.matchMedia('(prefers-reduced-motion: reduce)').matches
     ) {
@@ -456,7 +463,7 @@ export default function CampiagnDetails() {
       >
         <Link
           to="/"
-          className="bg-primary text-primary-foreground focus-visible:ring-ring rounded-lg px-4 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:outline-none"
+          className="flex-center bg-primary text-primary-foreground focus-visible:ring-ring rounded-lg px-4 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:outline-none"
         >
           Browse campaigns
         </Link>
@@ -473,7 +480,7 @@ export default function CampiagnDetails() {
       >
         <Link
           to="/"
-          className="border-border text-foreground focus-visible:ring-ring rounded-lg border px-4 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:outline-none"
+          className="flex-center border-border text-foreground focus-visible:ring-ring rounded-lg border px-4 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:outline-none"
         >
           Back to campaigns
         </Link>
@@ -493,7 +500,7 @@ export default function CampiagnDetails() {
       >
         <Link
           to="/"
-          className="bg-primary text-primary-foreground focus-visible:ring-ring rounded-lg px-4 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:outline-none"
+          className="flex-center bg-primary text-primary-foreground focus-visible:ring-ring rounded-lg px-4 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:outline-none"
         >
           Browse campaigns
         </Link>
@@ -506,7 +513,7 @@ export default function CampiagnDetails() {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <Link
           to="/"
-          className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none"
+          className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring flex-center min-h-10 gap-2 rounded-lg px-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
           All campaigns
@@ -515,7 +522,7 @@ export default function CampiagnDetails() {
           <Button
             type="button"
             onClick={() => void handleShare()}
-            className="border-border bg-card text-foreground hover:bg-muted min-h-10 gap-2 border text-sm"
+            className="flex-center border-border bg-card text-foreground hover:bg-muted min-h-10 gap-2 border text-sm"
           >
             {shareStatus === 'Campaign link copied.' ? (
               <Check className="text-success size-4" aria-hidden="true" />
@@ -614,21 +621,12 @@ export default function CampiagnDetails() {
         <div className="min-w-0 space-y-6">
           <section className="border-border bg-card overflow-hidden rounded-2xl border">
             <div className="bg-muted relative aspect-16/10 sm:aspect-[16/9]">
-              {activeImageUrl && !failedImages.has(activeImageUrl) ? (
-                <img
-                  src={activeImageUrl}
-                  alt={campaignDetails.title}
-                  className="size-full object-cover"
-                  onError={() =>
-                    setFailedImages((previous) => new Set(previous).add(activeImageUrl))
-                  }
-                />
-              ) : (
-                <div className="text-muted-foreground flex size-full flex-col items-center justify-center gap-3">
-                  <ImageOff className="size-10" aria-hidden="true" />
-                  <span className="text-sm">Campaign image unavailable</span>
-                </div>
-              )}
+              <CampaignImage
+                src={activeImageUrl}
+                alt={campaignDetails.title}
+                className="size-full object-cover"
+                loading="eager"
+              />
             </div>
             {imageUrls.length > 1 && (
               <div className="flex gap-2 overflow-x-auto p-3" aria-label="Campaign image gallery">
@@ -643,13 +641,7 @@ export default function CampiagnDetails() {
                       selectedImageIndex === index ? 'border-primary' : 'border-transparent'
                     }`}
                   >
-                    {failedImages.has(image) ? (
-                      <span className="bg-muted flex size-full items-center justify-center">
-                        <ImageOff className="text-muted-foreground size-5" aria-hidden="true" />
-                      </span>
-                    ) : (
-                      <img src={image} alt="" className="size-full object-cover" />
-                    )}
+                    <CampaignImage src={image} alt="" className="size-full object-cover" />
                   </button>
                 ))}
               </div>
@@ -815,7 +807,7 @@ export default function CampiagnDetails() {
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={progress}
-              aria-valuetext={`${progress}% of goal reached`}
+              aria-valuetext={`${progressLabel} of goal reached`}
             >
               <div
                 className="bg-primary h-full rounded-full transition-[width] duration-700 motion-reduce:transition-none"
@@ -823,7 +815,7 @@ export default function CampiagnDetails() {
               />
             </div>
             <div className="text-muted-foreground mt-2 flex justify-between text-xs">
-              <span>{progress}% funded</span>
+              <span>{progressLabel} funded</span>
               <span>{remainingDays === null ? 'Ended' : `${remainingDays} days left`}</span>
             </div>
 
@@ -866,7 +858,7 @@ export default function CampiagnDetails() {
               {canWithdraw && refundWindowKnown && !refundWindowElapsed && (
                 <Button
                   type="button"
-                  className="bg-primary text-primary-foreground mt-4 w-full hover:opacity-90"
+                  className="flex-center bg-primary text-primary-foreground mt-4 w-full hover:opacity-90"
                   disabled={transactionPending || receiptPending}
                   aria-busy={transactionPending || receiptPending}
                   onClick={() => handleCampaignAction('withdraw')}
@@ -885,7 +877,7 @@ export default function CampiagnDetails() {
                       <div className="flex flex-wrap gap-2">
                         <Button
                           type="button"
-                          className="bg-destructive text-destructive-foreground min-h-10"
+                          className="flex-center bg-destructive text-destructive-foreground min-h-10"
                           disabled={transactionPending || receiptPending}
                           onClick={() => handleCampaignAction('cancel')}
                         >
@@ -893,7 +885,7 @@ export default function CampiagnDetails() {
                         </Button>
                         <Button
                           type="button"
-                          className="border-border bg-background min-h-10 border text-foreground hover:bg-muted"
+                          className="flex-center border-border bg-background min-h-10 border text-foreground hover:bg-muted"
                           onClick={() => setCancelConfirmationOpen(false)}
                         >
                           Keep campaign
@@ -903,7 +895,7 @@ export default function CampiagnDetails() {
                   ) : (
                     <Button
                       type="button"
-                      className="border-destructive/40 text-destructive hover:bg-destructive/5 min-h-10 w-full border"
+                      className="flex-center border-destructive/40 text-destructive hover:bg-destructive/5 min-h-10 w-full border"
                       onClick={() => setCancelConfirmationOpen(true)}
                     >
                       Cancel campaign
@@ -931,7 +923,7 @@ export default function CampiagnDetails() {
               {canProcessRefunds && (
                 <Button
                   type="button"
-                  className="bg-primary text-primary-foreground mt-4 w-full hover:opacity-90"
+                  className="flex-center bg-primary text-primary-foreground mt-4 w-full hover:opacity-90"
                   disabled={transactionPending || receiptPending}
                   aria-busy={transactionPending || receiptPending}
                   onClick={() => handleCampaignAction('processRefunds')}
@@ -956,7 +948,7 @@ export default function CampiagnDetails() {
                   </p>
                   <Button
                     type="button"
-                    className="bg-primary text-primary-foreground mt-4 w-full gap-2 hover:opacity-90"
+                    className="flex-center bg-primary text-primary-foreground mt-4 w-full gap-2 hover:opacity-90"
                     disabled={transactionPending || receiptPending}
                     aria-busy={transactionPending || receiptPending}
                     onClick={() => handleCampaignAction('refund')}
@@ -972,7 +964,7 @@ export default function CampiagnDetails() {
               ) : (
                 <Button
                   type="button"
-                  className="bg-primary text-primary-foreground mt-4 w-full hover:opacity-90"
+                  className="flex-center bg-primary text-primary-foreground mt-4 w-full hover:opacity-90"
                   onClick={() => setConnectDialogOpen(true)}
                 >
                   Connect wallet to check refund
@@ -1036,7 +1028,7 @@ export default function CampiagnDetails() {
                 </p>
               )}
               <Button
-                className="bg-primary text-primary-foreground w-full hover:opacity-90"
+                className="flex-center bg-primary text-primary-foreground w-full hover:opacity-90"
                 disabled={
                   transactionPending ||
                   receiptPending ||

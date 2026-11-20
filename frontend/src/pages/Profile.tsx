@@ -1,10 +1,11 @@
 import AccountMenu from '@/components/AccountMenu';
+import CampaignImage from '@/components/CampaignImage';
 import WalletConnectDialog from '@/components/WalletConnectDialog';
 import Button from '@/components/ui/Button';
 import { EmptyState, ErrorState } from '@/components/ui/StateMessage';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { crowdFundingAbi } from '@/generated';
-import { formatEth } from '@/lib/utils';
+import { formatEth, formatProgressPercent } from '@/lib/utils';
 import { formatWeb3Error } from '@/lib/web3Errors';
 import { summarizeProfile } from '@/lib/profile';
 import {
@@ -160,7 +161,7 @@ export default function Profile() {
         <Button
           type="button"
           onClick={() => void copyAddress()}
-          className="min-h-10 gap-2 border border-border bg-background text-sm text-foreground hover:bg-muted"
+          className="flex-center min-h-10 gap-2 border border-border bg-background text-sm text-foreground hover:bg-muted"
         >
           <Copy className="size-4" aria-hidden="true" />
           Copy address
@@ -198,7 +199,7 @@ export default function Profile() {
             Lifetime totals reflect original on-chain contributions, including amounts later refunded.
           </p>
         </div>
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <ChartCard
             title="Campaign contributions"
             description="Original ETH contributions to campaigns you created; refunded amounts remain in this history."
@@ -244,8 +245,8 @@ export default function Profile() {
                     data={donatedChartData}
                     dataKey="amount"
                     nameKey="title"
-                    innerRadius={48}
-                    outerRadius={82}
+                    innerRadius={32}
+                    outerRadius={56}
                     paddingAngle={3}
                   >
                     {donatedChartData.map((campaign, index) => (
@@ -378,7 +379,7 @@ function PageHeader() {
       </div>
       <Link
         to="/create-campaign"
-        className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="flex-center min-h-10 gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
         <Plus className="size-4" aria-hidden="true" />
         New campaign
@@ -413,7 +414,7 @@ function ChartCard({
   children: ReactNode;
 }) {
   return (
-    <section className="min-w-0 rounded-2xl border border-border bg-card p-4 sm:p-5">
+    <section className="min-w-0 rounded-2xl border border-border bg-card p-3 sm:p-5">
       <h3 className="font-epilogue text-base font-semibold text-card-foreground">{title}</h3>
       <p className="mt-1 text-xs text-muted-foreground">{description}</p>
       <div className="mt-4 h-64 min-w-0">{children}</div>
@@ -444,11 +445,11 @@ function CampaignActivityCard({
   target?: bigint;
   detail: string;
 }) {
-  const [imageFailed, setImageFailed] = useState(false);
   const progress =
     target !== undefined && target > 0n
       ? Number((amount * 100n) / target > 100n ? 100n : (amount * 100n) / target)
       : null;
+  const progressLabel = target !== undefined ? formatProgressPercent(target, amount) : null;
 
   return (
     <Link
@@ -456,19 +457,7 @@ function CampaignActivityCard({
       className="flex min-w-0 items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/50 hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
       <div className="size-14 shrink-0 overflow-hidden rounded-lg bg-muted">
-        {image && !imageFailed ? (
-          <img
-            src={image}
-            alt=""
-            aria-hidden="true"
-            onError={() => setImageFailed(true)}
-            className="size-full object-cover"
-          />
-        ) : (
-          <div className="flex size-full items-center justify-center text-xs text-muted-foreground">
-            ETH
-          </div>
-        )}
+        <CampaignImage src={image} alt="" className="size-full object-cover" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-card-foreground">{title}</p>
@@ -477,16 +466,25 @@ function CampaignActivityCard({
           {target !== undefined && ` of ${formatEth(target)} ETH`}
         </p>
         {progress !== null && (
-          <div
-            className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
-            role="progressbar"
-            aria-label={`${title} funding progress`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progress}
-          >
-            <div className="h-full rounded-full bg-primary" style={{ width: `${progress}%` }} />
-          </div>
+          <>
+            <div
+              className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-label={`${title} funding progress`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress}
+              aria-valuetext={`${progressLabel} of goal reached`}
+            >
+              <div
+                className="h-full rounded-full bg-primary"
+                style={{ width: `${progress === 0 && amount > 0n ? 1 : progress}%` }}
+              />
+            </div>
+            {progressLabel && (
+              <p className="mt-1 text-[11px] text-muted-foreground">{progressLabel} funded</p>
+            )}
+          </>
         )}
       </div>
     </Link>
@@ -503,7 +501,7 @@ function ProfileSkeleton() {
           <Skeleton key={index} className="h-28 rounded-2xl" />
         ))}
       </div>
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <Skeleton className="h-80 rounded-2xl" />
         <Skeleton className="h-80 rounded-2xl" />
       </div>

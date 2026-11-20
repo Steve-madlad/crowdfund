@@ -21,6 +21,7 @@ interface CampaignData {
   amountCollected: bigint;
   deadline: bigint;
   cancelled?: boolean;
+  withdrawn?: boolean;
 }
 
 export interface CampaignListing<T extends CampaignData> {
@@ -53,7 +54,10 @@ export function filterCampaignListings<T extends CampaignData>(
       filters.status === 'all' ||
       (filters.status === 'cancelled' && campaign.cancelled === true) ||
       (campaign.cancelled !== true &&
-        ((filters.status === 'active' && remainingDays !== null) ||
+        ((filters.status === 'active' &&
+          remainingDays !== null &&
+          campaign.withdrawn !== true &&
+          !reachedGoal) ||
           (filters.status === 'ended' && remainingDays === null) ||
           (filters.status === 'goal-reached' && reachedGoal)));
 

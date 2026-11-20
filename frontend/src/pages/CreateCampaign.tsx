@@ -1,4 +1,5 @@
 import { money } from '@/assets';
+import CampaignImage from '@/components/CampaignImage';
 import FormInput from '@/components/FormInput';
 import WalletConnectDialog from '@/components/WalletConnectDialog';
 import Button from '@/components/ui/Button';
@@ -24,9 +25,27 @@ import {
 } from '@/lib/imageUrls';
 import { dateInputToDeadline, formatEth } from '@/lib/utils';
 import { formatWeb3Error } from '@/lib/web3Errors';
-import { ArrowDown, ArrowUp, ImageOff, Plus, Trash2 } from 'lucide-react';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { ArrowDown, ArrowUp, GripVertical, ImageOff, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { parseEther, type Address } from 'viem';
+import { parseEther, parseEventLogs, type Address } from 'viem';
+import { Link } from 'react-router-dom';
 import {
   useConnection,
   usePublicClient,
@@ -117,6 +136,7 @@ export default function CreateCampaign() {
   const [needsSubmissionReview, setNeedsSubmissionReview] = useState(false);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [pendingCreateArgs, setPendingCreateArgs] = useState<CreateCampaignArgs>();
+  const [createdCampaignId, setCreatedCampaignId] = useState<string>();
   const [isConfirming, setIsConfirming] = useState(false);
   const [receiptStatus, setReceiptStatus] = useState<'success' | 'reverted'>();
   const [receiptError, setReceiptError] = useState<string>();
@@ -131,7 +151,7 @@ export default function CreateCampaign() {
     isPending: createCampaignLoading,
     error: createCampaignError,
   } = useWriteContract();
-  const { refetch: refetchCampaigns } = useReadContract({
+  const { data: campaigns, refetch: refetchCampaigns } = useReadContract({
     address: contractAddress,
     abi: crowdFundingAbi,
     functionName: 'getCampaigns',
@@ -227,6 +247,10 @@ export default function CreateCampaign() {
   }, [imageFields]);
 
   const isBusy = createCampaignLoading || isConfirming;
+  const imageSortSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const resetFeeEstimate = () => {
     feeEstimateRequestId.current += 1;
     setEstimatedFee(undefined);
@@ -256,6 +280,19 @@ export default function CreateCampaign() {
       const reordered = [...current];
       [reordered[index], reordered[targetIndex]] = [reordered[targetIndex], reordered[index]];
       return reordered;
+    });
+    setDraftStorageError(undefined);
+    resetFeeEstimate();
+  };
+
+  const handleImageDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+
+    setImageFields((current) => {
+      const sourceIndex = current.findIndex(({ id }) => id === active.id);
+      const targetIndex = current.findIndex(({ id }) => id === over.id);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      return arrayMove(current, sourceIndex, targetIndex);
     });
     setDraftStorageError(undefined);
     resetFeeEstimate();
@@ -307,6 +344,12 @@ export default function CreateCampaign() {
             setReceiptStatus(transactionReceipt.status);
             if (transactionReceipt.status === 'success') {
               toast.success('Campaign created successfully.');
+              const createdEvent = parseEventLogs({
+                abi: crowdFundingAbi,
+                logs: transactionReceipt.logs,
+                eventName: 'CampaignCreated',
+              })[0];
+              setCreatedCampaignId(createdEvent?.args.campaignId.toString());
               void refetchCampaigns();
               const clearError = clearDraft();
               setDraftStorageError(clearError);
@@ -482,6 +525,11 @@ export default function CreateCampaign() {
   const hasDraftContent =
     Object.values(form).some((value) => value.trim().length > 0) ||
     imageFields.some((field) => field.url.trim().length > 0);
+  const campaignCount = address
+    ? (campaigns ?? []).filter(
+        (campaign) => campaign.owner.toLowerCase() === address.toLowerCase(),
+      ).length
+    : undefined;
 
   const submissionStatusMessage = {
     draft: '',
@@ -524,6 +572,19 @@ export default function CreateCampaign() {
         <p role="alert" className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
           {draftStorageError}
         </p>
+      )}
+      {campaignCount !== undefined && campaignCount <= 2 && (
+        <aside className="mb-5 flex flex-col gap-3 rounded-xl border border-primary/25 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm leading-6 text-foreground">
+            New to Crowdfund? Review the campaign and refund rules before you publish.
+          </p>
+          <Link
+            to="/help"
+            className="flex-center min-h-9 shrink-0 rounded-lg border border-border bg-background px-3 text-sm font-semibold text-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            Read the rules
+          </Link>
+        </aside>
       )}
       {submissionStatusMessage && (
         <section
@@ -660,7 +721,8 @@ export default function CreateCampaign() {
                   Campaign images
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Add up to {MAX_CAMPAIGN_IMAGES} images. The first image is the cover.
+                  Add up to {MAX_CAMPAIGN_IMAGES} images. Drag the handle to reorder, or use the
+                  arrow controls. The first image is the cover.
                 </p>
               </div>
             </div>
@@ -675,114 +737,43 @@ export default function CreateCampaign() {
                 setFormError(undefined);
                 resetFeeEstimate();
               }}
-              className="min-h-10 gap-2 border border-border bg-background text-sm text-foreground hover:bg-muted"
+              className="flex-center min-h-10 gap-2 border border-border bg-background text-sm text-foreground hover:bg-muted"
             >
               <Plus className="size-4" aria-hidden="true" />
               Add image
             </Button>
           </div>
 
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {imageFields.map((field, index) => {
-              const status = getImageStatus(field, imageStatuses);
-              return (
-                <div
-                  key={field.id}
-                  className="min-w-0 overflow-hidden rounded-xl border border-border bg-background"
-                >
-                <div className="relative aspect-16/10 bg-muted">
-                  {status === 'valid' ? (
-                    <img
-                      src={field.url}
-                      alt={`Preview of campaign image ${index + 1}`}
-                      className="size-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex size-full flex-col items-center justify-center gap-2 text-muted-foreground">
-                      <ImageOff className="size-7" aria-hidden="true" />
-                      <span className="text-xs">
-                        {status === 'checking' ? 'Checking image…' : 'Preview will appear here'}
-                      </span>
-                    </div>
-                  )}
-                  {index === 0 && (
-                    <span className="absolute top-2 left-2 rounded-full bg-background/90 px-2.5 py-1 text-xs font-semibold text-foreground">
-                      Cover
-                    </span>
-                  )}
-                </div>
-                <div className="grid gap-3 p-3">
-                  <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                    Image URL {index + 1}
-                    <Input
-                      type="url"
-                      value={field.url}
-                      onChange={(event) => updateImageUrl(field.id, event.target.value)}
-                      placeholder="https://example.com/image.jpg"
-                      aria-label={`Image URL ${index + 1}`}
-                      aria-invalid={status === 'invalid'}
-                      maxLength={MAX_IMAGE_URL_BYTES}
-                      disabled={isBusy}
-                    />
-                  </label>
-                  <div className="flex min-h-8 items-center justify-between gap-2">
-                    <span
-                      className={`text-xs ${
-                        status === 'valid'
-                          ? 'text-success'
-                          : status === 'invalid'
-                            ? 'text-destructive'
-                            : 'text-muted-foreground'
-                      }`}
-                      aria-live="polite"
-                    >
-                      {status === 'valid'
-                        ? 'Image verified'
-                        : status === 'invalid'
-                          ? 'Could not load this image'
-                          : status === 'checking'
-                            ? 'Checking image…'
-                            : 'HTTPS image URL required'}
-                    </span>
-                    <div className="flex shrink-0 gap-1">
-                      <Button
-                        type="button"
-                        disabled={isBusy || index === 0}
-                        aria-label={`Move image ${index + 1} earlier`}
-                        onClick={() => moveImage(index, -1)}
-                        className="min-h-8 size-8 p-0 text-muted-foreground hover:bg-muted"
-                      >
-                        <ArrowUp className="size-4" aria-hidden="true" />
-                      </Button>
-                      <Button
-                        type="button"
-                        disabled={isBusy || index === imageFields.length - 1}
-                        aria-label={`Move image ${index + 1} later`}
-                        onClick={() => moveImage(index, 1)}
-                        className="min-h-8 size-8 p-0 text-muted-foreground hover:bg-muted"
-                      >
-                        <ArrowDown className="size-4" aria-hidden="true" />
-                      </Button>
-                      <Button
-                        type="button"
-                        disabled={isBusy || imageFields.length === 1}
-                        aria-label={`Remove image ${index + 1}`}
-                        onClick={() => {
-                          setImageFields((current) => current.filter((item) => item.id !== field.id))
-                          setFormError(undefined);
-                          resetFeeEstimate();
-                        }}
-                        className="min-h-8 size-8 p-0 text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="size-4" aria-hidden="true" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
+          <DndContext
+            sensors={imageSortSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleImageDragEnd}
+          >
+            <SortableContext
+              items={imageFields.map(({ id }) => id)}
+              strategy={rectSortingStrategy}
+            >
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {imageFields.map((field, index) => (
+                  <SortableImageCard
+                    key={field.id}
+                    field={field}
+                    index={index}
+                    status={getImageStatus(field, imageStatuses)}
+                    imageCount={imageFields.length}
+                    isBusy={isBusy}
+                    onUpdateImage={updateImageUrl}
+                    onMoveImage={moveImage}
+                    onRemoveImage={(id) => {
+                      setImageFields((current) => current.filter((item) => item.id !== id));
+                      setFormError(undefined);
+                      resetFeeEstimate();
+                    }}
+                  />
+                ))}
               </div>
-              );
-            })}
-          </div>
+            </SortableContext>
+          </DndContext>
           <p className="mt-4 rounded-lg bg-muted p-3 text-xs leading-5 text-muted-foreground">
             Use public HTTPS image URLs. Up to {MAX_IMAGE_URL_BYTES} bytes per URL are stored on-chain;
             the image files remain with their host, and adding URLs increases the creation gas cost.
@@ -970,7 +961,181 @@ export default function CreateCampaign() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={Boolean(createdCampaignId)}
+        onOpenChange={(open) => {
+          if (!open) setCreatedCampaignId(undefined);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Campaign created</DialogTitle>
+            <DialogDescription>
+              Your campaign is live. You can open its page now or start another campaign.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              onClick={() => {
+                setCreatedCampaignId(undefined);
+                setReceiptStatus(undefined);
+              }}
+              className="flex-center min-h-10 border border-border bg-background text-foreground hover:bg-muted"
+            >
+              Create another
+            </Button>
+            {createdCampaignId && (
+              <Link
+                to={`/campaign-details/${createdCampaignId}`}
+                onClick={() => setCreatedCampaignId(undefined)}
+                className="flex-center min-h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                View campaign
+              </Link>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <WalletConnectDialog open={isModalOpen} onOpenChange={setIsModalOpen} />
+    </div>
+  );
+}
+
+interface SortableImageCardProps {
+  field: ImageField;
+  index: number;
+  status: ImageStatus;
+  imageCount: number;
+  isBusy: boolean;
+  onUpdateImage: (id: number, url: string) => void;
+  onMoveImage: (index: number, direction: -1 | 1) => void;
+  onRemoveImage: (id: number) => void;
+}
+
+function SortableImageCard({
+  field,
+  index,
+  status,
+  imageCount,
+  isBusy,
+  onUpdateImage,
+  onMoveImage,
+  onRemoveImage,
+}: SortableImageCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: field.id,
+    disabled: isBusy,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 1 : undefined,
+      }}
+      className={`relative min-w-0 overflow-hidden rounded-xl border bg-background transition-colors ${
+        index === 0 ? 'border-primary ring-2 ring-primary/40 shadow-md shadow-primary/10' : 'border-border'
+      } ${isDragging ? 'opacity-60' : ''}`}
+    >
+      <div className="relative aspect-16/10 bg-muted">
+        {status === 'valid' ? (
+          <CampaignImage
+            src={field.url}
+            alt={`Preview of campaign image ${index + 1}`}
+            className="size-full object-cover"
+          />
+        ) : (
+          <div className="flex size-full flex-col items-center justify-center gap-2 text-muted-foreground">
+            <ImageOff className="size-7" aria-hidden="true" />
+            <span className="text-xs">
+              {status === 'checking' ? 'Checking image…' : 'Preview will appear here'}
+            </span>
+          </div>
+        )}
+        {index === 0 && (
+          <span className="absolute top-2 left-2 rounded-full bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground">
+            Cover
+          </span>
+        )}
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          disabled={isBusy}
+          aria-label={`Drag image ${index + 1} to reorder`}
+          className="flex-center absolute top-2 right-2 size-9 touch-none cursor-grab rounded-lg border border-border/70 bg-background/90 text-foreground shadow-sm backdrop-blur focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <GripVertical className="size-4" aria-hidden="true" />
+        </button>
+      </div>
+      <div className="grid gap-3 p-3">
+        <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+          Image URL {index + 1}
+          <Input
+            type="url"
+            value={field.url}
+            onChange={(event) => onUpdateImage(field.id, event.target.value)}
+            placeholder="https://example.com/image.jpg"
+            aria-label={`Image URL ${index + 1}`}
+            aria-invalid={status === 'invalid'}
+            maxLength={MAX_IMAGE_URL_BYTES}
+            disabled={isBusy}
+          />
+        </label>
+        <div className="flex min-h-8 items-center justify-between gap-2">
+          <span
+            className={`text-xs ${
+              status === 'valid'
+                ? 'text-success'
+                : status === 'invalid'
+                  ? 'text-destructive'
+                  : 'text-muted-foreground'
+            }`}
+            aria-live="polite"
+          >
+            {status === 'valid'
+              ? 'Image verified'
+              : status === 'invalid'
+                ? 'Could not load this image'
+                : status === 'checking'
+                  ? 'Checking image…'
+                  : 'HTTPS image URL required'}
+          </span>
+          <div className="flex shrink-0 gap-1">
+            <Button
+              type="button"
+              disabled={isBusy || index === 0}
+              aria-label={`Move image ${index + 1} earlier`}
+              onClick={() => onMoveImage(index, -1)}
+              className="flex-center min-h-8 size-8 p-0 text-muted-foreground hover:bg-muted"
+            >
+              <ArrowUp className="size-4" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              disabled={isBusy || index === imageCount - 1}
+              aria-label={`Move image ${index + 1} later`}
+              onClick={() => onMoveImage(index, 1)}
+              className="flex-center min-h-8 size-8 p-0 text-muted-foreground hover:bg-muted"
+            >
+              <ArrowDown className="size-4" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              disabled={isBusy || imageCount === 1}
+              aria-label={`Remove image ${index + 1}`}
+              onClick={() => onRemoveImage(field.id)}
+              className="flex-center min-h-8 size-8 p-0 text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

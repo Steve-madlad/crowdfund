@@ -1,37 +1,41 @@
-import { createCampaign, dashboard, logout, payment, profile, withdraw } from '@/assets';
+import {
+  Bookmark,
+  CircleHelp,
+  LayoutDashboard,
+  LogOut,
+  PlusCircle,
+  UserRound,
+} from 'lucide-react';
 
 export const navlinks = [
   {
     name: 'dashboard',
-    imgUrl: dashboard,
+    icon: LayoutDashboard,
     link: '/',
   },
   {
     name: 'campaign',
-    imgUrl: createCampaign,
+    icon: PlusCircle,
     link: '/create-campaign',
   },
   {
-    name: 'payment',
-    imgUrl: payment,
-    link: '/',
-    disabled: true,
+    name: 'bookmarks',
+    icon: Bookmark,
+    link: '/?bookmarked=1',
   },
   {
-    name: 'withdraw',
-    imgUrl: withdraw,
-    link: '/',
-    disabled: true,
+    name: 'help',
+    icon: CircleHelp,
+    link: '/help',
   },
   {
     name: 'profile',
-    imgUrl: profile,
+    icon: UserRound,
     link: '/profile',
   },
   {
     name: 'logout',
-    imgUrl: logout,
+    icon: LogOut,
     link: '/',
-    disabled: true,
   },
 ];

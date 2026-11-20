@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/Select';
 import { CampaignGridSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState, ErrorState } from '@/components/ui/StateMessage';
+import CampaignImage from '@/components/CampaignImage';
 import {
   campaignCategories,
   filterCampaignListings,
@@ -16,12 +17,14 @@ import {
   type CampaignSortOption,
   type CampaignStatusFilter,
 } from '@/lib/campaigns';
-import { calculateBarPercentage, daysLeft, formatEth } from '@/lib/utils';
+import { CAMPAIGN_BOOKMARK_STORAGE_KEY, parseCampaignBookmarkIds } from '@/lib/campaignBookmarks';
+import { calculateBarPercentage, daysLeft, formatEth, formatProgressPercent } from '@/lib/utils';
 import { formatWeb3Error } from '@/lib/web3Errors';
-import { ChevronLeft, ChevronRight, ImageOff } from 'lucide-react';
+import { Bookmark, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useReadContract } from 'wagmi';
+import { toast } from 'sonner';
+import { useConnection, useReadContract } from 'wagmi';
 import { crowdFundingAbi } from '../generated';
 
 const contractAddress = import.meta.env.VITE_REACT_CONTRACT_ADDRESS;
@@ -29,8 +32,36 @@ const PAGE_SIZE = 9;
 const statuses = ['all', 'active', 'ended', 'goal-reached', 'cancelled'] as const;
 const sortOptions = ['newest', 'oldest', 'most-funded', 'title'] as const;
 
+function readBookmarkState(storageKey: string): {
+  storageKey: string;
+  ids: Set<number>;
+  error?: string;
+} {
+  try {
+    return {
+      storageKey,
+      ids: parseCampaignBookmarkIds(window.localStorage.getItem(storageKey)),
+    };
+  } catch (error) {
+    return {
+      storageKey,
+      ids: new Set(),
+      error: error instanceof Error ? error.message : 'browser storage could not be read',
+    };
+  }
+}
+
 export default function Home() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { chainId } = useConnection();
+  const bookmarkStorageKey = `${CAMPAIGN_BOOKMARK_STORAGE_KEY}:${chainId ?? 'unknown'}:${contractAddress?.toLowerCase() ?? 'unknown'}`;
+  const [bookmarkState, setBookmarkState] = useState(() => readBookmarkState(bookmarkStorageKey));
+  const currentBookmarkState =
+    bookmarkState.storageKey === bookmarkStorageKey
+      ? bookmarkState
+      : readBookmarkState(bookmarkStorageKey);
+  const bookmarks = currentBookmarkState.ids;
+  const bookmarkedOnly = searchParams.get('bookmarked') === '1';
   const {
     data: campaignData,
     isLoading,
@@ -52,7 +83,7 @@ export default function Home() {
   const requestedStatus = searchParams.get('status');
   const selectedStatus = statuses.includes(requestedStatus as CampaignStatusFilter)
     ? (requestedStatus as CampaignStatusFilter)
-    : 'all';
+    : 'active';
   const requestedSort = searchParams.get('sort');
   const selectedSort = sortOptions.includes(requestedSort as CampaignSortOption)
     ? (requestedSort as CampaignSortOption)
@@ -69,20 +100,29 @@ export default function Home() {
     [campaignData],
   );
   const filteredCampaigns = useMemo(
-    () =>
-      filterCampaignListings(campaigns, {
+    () => {
+      const byStatusAndCategory = filterCampaignListings(campaigns, {
         search,
         category: selectedCategory,
         status: selectedStatus,
         sort: selectedSort,
-      }),
-    [campaigns, search, selectedCategory, selectedSort, selectedStatus],
+      });
+      return bookmarkedOnly
+        ? byStatusAndCategory.filter(({ id }) => bookmarks.has(id))
+        : byStatusAndCategory;
+    },
+    [bookmarkedOnly, bookmarks, campaigns, search, selectedCategory, selectedSort, selectedStatus],
   );
 
   const updateFilters = (updates: Record<string, string>) => {
     const nextParams = new URLSearchParams(searchParams);
     for (const [key, value] of Object.entries(updates)) {
-      if (value && value !== 'all' && value !== 'newest') nextParams.set(key, value);
+      const shouldPersistValue =
+        value !== '' &&
+        (key === 'status'
+          ? value !== 'active'
+          : value !== 'all' && value !== 'newest');
+      if (shouldPersistValue) nextParams.set(key, value);
       else nextParams.delete(key);
     }
     nextParams.delete('page');
@@ -94,6 +134,22 @@ export default function Home() {
     if (page > 1) nextParams.set('page', String(page));
     else nextParams.delete('page');
     setSearchParams(nextParams, { replace: true });
+  };
+  const toggleBookmark = (id: number) => {
+    const updated = new Set(bookmarks);
+    if (updated.has(id)) updated.delete(id);
+    else updated.add(id);
+
+    try {
+      window.localStorage.setItem(bookmarkStorageKey, JSON.stringify([...updated]));
+      setBookmarkState({ storageKey: bookmarkStorageKey, ids: updated });
+    } catch (error) {
+      toast.error(
+        `Could not save this campaign: ${
+          error instanceof Error ? error.message : 'browser storage is unavailable'
+        }`,
+      );
+    }
   };
 
   const heading = (
@@ -149,21 +205,26 @@ export default function Home() {
     campaigns.some((item) => item.category === category),
   );
   const pagination = paginateItems(filteredCampaigns, requestedPage, PAGE_SIZE);
-  console.log({pagination})
   const { page, totalPages: pageCount, items: pageCampaigns } = pagination;
   const hasFilters =
     search.length > 0 ||
     selectedCategory !== 'all' ||
-    selectedStatus !== 'all' ||
-    selectedSort !== 'newest';
+    selectedStatus !== 'active' ||
+    selectedSort !== 'newest' ||
+    bookmarkedOnly;
 
   return (
     <div>
       {heading}
       <section
         aria-label="Campaign filters"
-        className="border-border bg-card mt-5 grid gap-3 rounded-xl border p-4 sm:grid-cols-2 lg:grid-cols-[minmax(12rem,1fr)_repeat(3,minmax(9rem,0.65fr))] lg:items-end"
+        className="border-border bg-card mt-5 grid gap-3 rounded-xl border p-4 sm:grid-cols-2 lg:grid-cols-[minmax(12rem,1fr)_repeat(3,minmax(9rem,0.65fr))_auto] lg:items-end"
       >
+        {currentBookmarkState.error && (
+          <p role="alert" className="text-sm text-destructive sm:col-span-2 lg:col-span-5">
+            Saved campaigns are unavailable: {currentBookmarkState.error}
+          </p>
+        )}
         <p className="text-muted-foreground text-sm sm:col-span-2 lg:col-span-1">
           Search instantly from the navigation bar, or narrow campaigns here.
         </p>
@@ -186,6 +247,15 @@ export default function Home() {
             </SelectContent>
           </Select>
         </label>
+        <button
+          type="button"
+          aria-pressed={bookmarkedOnly}
+          onClick={() => updateFilters({ bookmarked: bookmarkedOnly ? '' : '1' })}
+          className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <Bookmark className={`size-4 ${bookmarkedOnly ? 'fill-primary text-primary' : ''}`} aria-hidden="true" />
+          Saved
+        </button>
         <label className="text-muted-foreground grid gap-1.5 text-xs font-medium">
           Campaign status
           <Select
@@ -241,8 +311,12 @@ export default function Home() {
 
       {filteredCampaigns.length === 0 ? (
         <EmptyState
-          title="No matching campaigns"
-          description="Try another search, category, or status filter."
+          title={bookmarkedOnly && bookmarks.size === 0 ? 'No saved campaigns yet' : 'No matching campaigns'}
+          description={
+            bookmarkedOnly && bookmarks.size === 0
+              ? 'Use the bookmark button on a campaign card to save it for later.'
+              : 'Try another search, category, or status filter.'
+          }
           className="mt-4"
         >
           <button
@@ -274,6 +348,8 @@ export default function Home() {
                 cancelled={campaign.cancelled}
                 withdrawn={campaign.withdrawn}
                 refundsEnabled={campaign.refundsEnabled}
+                isBookmarked={bookmarks.has(id)}
+                onToggleBookmark={() => toggleBookmark(id)}
               />
             ))}
           </div>
@@ -324,6 +400,8 @@ interface CampaignCardProps {
   cancelled: boolean;
   withdrawn: boolean;
   refundsEnabled: boolean;
+  isBookmarked: boolean;
+  onToggleBookmark: () => void;
 }
 
 function CampaignCard({
@@ -339,42 +417,36 @@ function CampaignCard({
   cancelled,
   withdrawn,
   refundsEnabled,
+  isBookmarked,
+  onToggleBookmark,
 }: CampaignCardProps) {
   const remainingDays = daysLeft(deadline);
   const progress = calculateBarPercentage(target, amountCollected);
+  const progressLabel = formatProgressPercent(target, amountCollected);
   const goalReached = target > 0n && amountCollected >= target;
   const refundsAvailable =
     cancelled || refundsEnabled || (remainingDays === null && !goalReached);
-  const [imageFailed, setImageFailed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
 
   return (
+    <article className="group relative min-w-0">
     <Link
       to={`/campaign-details/${id}`}
       aria-label={`View campaign: ${title}`}
-      className="group border-border bg-card hover:border-primary/60 focus-visible:ring-ring flex w-full min-w-0 flex-col overflow-hidden rounded-xl border transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus-visible:ring-2 focus-visible:outline-none motion-reduce:transform-none"
+      className="border-border bg-card hover:border-primary/60 focus-visible:ring-ring flex w-full min-w-0 flex-col overflow-hidden rounded-xl border transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus-visible:ring-2 focus-visible:outline-none motion-reduce:transform-none"
     >
       <div className="bg-muted relative aspect-16/10 w-full overflow-hidden">
-        {image && !imageFailed ? (
-          <img
-            alt=""
-            aria-hidden="true"
-            src={image}
-            onError={() => setImageFailed(true)}
-            className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transform-none"
-          />
-        ) : (
-          <div className="from-secondary to-muted text-muted-foreground flex size-full items-center justify-center bg-linear-to-br">
-            <ImageOff className="size-9" aria-hidden="true" />
-            <span className="sr-only">Campaign image unavailable</span>
-          </div>
-        )}
+        <CampaignImage
+          src={image}
+          alt=""
+          className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03] motion-reduce:transform-none"
+        />
         <span className="border-border/70 bg-background/90 text-foreground absolute top-3 left-3 rounded-full border px-2.5 py-1 text-xs font-medium backdrop-blur">
           {category}
         </span>
         {(cancelled || withdrawn || goalReached) && (
           <span
-            className={`absolute top-3 right-3 rounded-full px-2.5 py-1 text-xs font-semibold ${
+            className={`absolute top-3 right-14 rounded-full px-2.5 py-1 text-xs font-semibold ${
               cancelled
                 ? 'bg-destructive text-destructive-foreground'
                 : 'bg-success text-success-foreground'
@@ -416,11 +488,12 @@ function CampaignCard({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={progress}
+            aria-valuetext={`${progressLabel} of goal reached`}
           >
             <div className="bg-primary h-full rounded-full" style={{ width: `${progress}%` }} />
           </div>
           <div className="text-muted-foreground mt-1.5 flex justify-between text-xs">
-            <span>{progress}% funded</span>
+            <span>{progressLabel} funded</span>
             <span>
               {cancelled
                 ? 'Cancelled'
@@ -453,5 +526,18 @@ function CampaignCard({
         </div>
       </div>
     </Link>
+      <button
+        type="button"
+        aria-label={`${isBookmarked ? 'Remove' : 'Add'} ${title} ${isBookmarked ? 'from' : 'to'} saved campaigns`}
+        aria-pressed={isBookmarked}
+        onClick={onToggleBookmark}
+        className="absolute top-2.5 right-2.5 z-10 flex-center size-9 rounded-full border border-border/70 bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus-visible:ring-2 focus-visible:ring-success focus-visible:outline-none"
+      >
+        <Bookmark
+          className={`size-4 ${isBookmarked ? 'fill-primary text-primary' : ''}`}
+          aria-hidden="true"
+        />
+      </button>
+    </article>
   );
 }

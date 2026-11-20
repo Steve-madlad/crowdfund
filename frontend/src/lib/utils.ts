@@ -71,7 +71,13 @@ export const calculateBarPercentage = (goal: bigint, raisedAmount: bigint): numb
     return 100;
   }
 
-  return Number((raisedAmount * 100n) / goal);
+  return Math.max(1, Number((raisedAmount * 100n) / goal));
+};
+
+export const formatProgressPercent = (goal: bigint, raisedAmount: bigint): string => {
+  if (goal <= 0n || raisedAmount <= 0n) return '0%';
+  if (raisedAmount < goal && raisedAmount * 100n < goal) return '<1%';
+  return `${Number((raisedAmount * 100n) / goal)}%`;
 };
 
 export const checkIfImage = (url: string, callback: (exists: boolean) => void): void => {

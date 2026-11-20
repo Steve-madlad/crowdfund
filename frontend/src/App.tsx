@@ -6,6 +6,7 @@ import Home from './pages/Home';
 import Profile from './pages/Profile';
 import CampiagnDetails from './pages/CampiagnDetails';
 import CreateCampaign from './pages/CreateCampaign';
+import Help from './pages/Help';
 import { useTheme } from './providers/useTheme';
 import { Toaster } from 'sonner';
 
@@ -26,6 +27,7 @@ function App() {
               <Route path="/profile" element={<Profile />}></Route>
               <Route path="/create-campaign" element={<CreateCampaign />}></Route>
               <Route path="/campaign-details/:id" element={<CampiagnDetails />}></Route>
+              <Route path="/help" element={<Help />}></Route>
             </Routes>
           </main>
         </div>

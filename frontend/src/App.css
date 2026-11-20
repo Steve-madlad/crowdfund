@@ -116,6 +116,14 @@
   .flex-center {
     @apply flex items-center justify-center;
   }
+
+  .sidebar-panel {
+    box-shadow: 0 2px 12px rgb(15 23 42 / 0.08);
+  }
+
+  [data-theme='dark'] .sidebar-panel {
+    box-shadow: none;
+  }
   .flex-between {
     @apply flex items-center justify-between;
   }
