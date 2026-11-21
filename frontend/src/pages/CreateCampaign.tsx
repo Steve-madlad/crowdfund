@@ -576,7 +576,7 @@ export default function CreateCampaign() {
       {campaignCount !== undefined && campaignCount <= 2 && (
         <aside className="mb-5 flex flex-col gap-3 rounded-xl border border-primary/25 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm leading-6 text-foreground">
-            New to Crowdfund? Review the campaign and refund rules before you publish.
+            New to Venti? Review the campaign and refund rules before you publish.
           </p>
           <Link
             to="/help"

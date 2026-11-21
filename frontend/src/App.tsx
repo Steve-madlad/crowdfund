@@ -9,12 +9,16 @@ import CreateCampaign from './pages/CreateCampaign';
 import Help from './pages/Help';
 import { useTheme } from './providers/useTheme';
 import { Toaster } from 'sonner';
+import RefundReminder from './components/RefundReminder';
+import SeoMetadata from './components/SeoMetadata';
 
 function App() {
   const { resolvedTheme } = useTheme();
 
   return (
     <>
+      <SeoMetadata />
+      <RefundReminder />
       <div className="sm:-8 relative flex min-h-screen bg-background text-foreground lg:p-4">
         <div className="relative mr-10 ml-4 hidden sm:flex lg:ml-0">
           <Sidebar />

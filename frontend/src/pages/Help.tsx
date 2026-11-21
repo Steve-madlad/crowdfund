@@ -32,10 +32,10 @@ export default function Help() {
     <article className="mx-auto w-full max-w-4xl">
       <header className="mb-7">
         <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">
-          Crowdfund guide
+          Venti guide
         </p>
         <h1 className="mt-2 font-epilogue text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-          Campaign rules and help
+          Venti campaign rules and help
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
           Review how contributions, withdrawals, cancellations, and refunds work before you create

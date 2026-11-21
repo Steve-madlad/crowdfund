@@ -1,4 +1,4 @@
-# Crowdfund
+# Venti
 
 A responsive Web3 crowdfunding dApp. Browse and support campaigns, create campaigns with multiple images, and manage campaign funds through an Ethereum smart contract.
 
@@ -21,6 +21,7 @@ A responsive Web3 crowdfunding dApp. Browse and support campaigns, create campai
 - Donate to campaigns, track progress, and view campaign and profile activity.
 - Withdraw funds from eligible successful campaigns.
 - Claim refunds for cancelled or unsuccessful campaigns. Successful campaigns that remain unpaid past the refund window can have refunds enabled.
+- See locally stored refund reminders for eligible refunds; dismissals can be snoozed or disabled per campaign.
 - Save campaigns and switch between light and dark themes.
 
 Campaign images are stored as HTTPS URLs on-chain, not uploaded by the app. Each image host controls the image availability.

@@ -37,7 +37,7 @@ export const Icon = ({ imgUrl, className, name, activeLink, disabled, handleClic
     <img
       className={`h-1/2 w-1/2 ${activeLink && activeLink !== name && 'grayscale'}`}
       src={imgUrl}
-      alt={handleClick ? '' : 'Crowdfund home'}
+      alt={handleClick ? '' : 'Venti home'}
       aria-hidden={Boolean(handleClick)}
     />
   );
@@ -111,7 +111,7 @@ export default function Sidebar() {
   return (
     <TooltipProvider delayDuration={250}>
       <div className="col-between sticky top-5 h-[93vh] items-center">
-        <Link to="/" aria-label="Crowdfund home">
+        <Link to="/" aria-label="Venti home">
           <Icon className="size-13 bg-secondary" imgUrl={logo} />
         </Link>
 
@@ -201,7 +201,7 @@ export default function Sidebar() {
           <DialogHeader>
             <DialogTitle>Disconnect your wallet?</DialogTitle>
             <DialogDescription>
-              This disconnects your wallet from Crowdfund. It does not revoke this site’s
+              This disconnects your wallet from Venti. It does not revoke this site’s
               permissions in your wallet.
             </DialogDescription>
           </DialogHeader>

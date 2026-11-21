@@ -1,6 +1,6 @@
-# Crowdfund smart contracts
+# Venti smart contracts
 
-This directory contains the Crowdfund Solidity contract and its Hardhat 3 development setup.
+This directory contains the Venti Solidity contract and its Hardhat 3 development setup.
 
 ## Layout
 
