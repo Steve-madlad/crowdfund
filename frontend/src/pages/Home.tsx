@@ -504,7 +504,7 @@ function CampaignCard({
           </div>
         </div>
 
-        <div className="border-border mt-auto flex min-w-0 items-center gap-2.5 border-t pt-3.5">
+        <div className=" mt-auto flex min-w-0 items-center gap-2.5 pt-3.5">
           <div className="bg-secondary flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full">
             {!avatarFailed ? (
               <img
