@@ -113,6 +113,14 @@
 }
 
 @layer utilities {
+  .line-clamp-3 {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3
+  }
+
   .flex-center {
     @apply flex items-center justify-center;
   }

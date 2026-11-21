@@ -178,7 +178,7 @@ export default function Navbar() {
                           <span className="block truncate text-sm font-semibold text-foreground">
                             {campaign.title}
                           </span>
-                          <span className="mt-1 block line-clamp-1 text-xs text-muted-foreground">
+                          <span className="mt-1 block line-clamp-3 text-xs text-muted-foreground">
                             {campaign.description}
                           </span>
                         </span>
