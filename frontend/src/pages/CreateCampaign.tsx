@@ -684,7 +684,7 @@ export default function CreateCampaign() {
               placeholder="0.5"
               type="number"
               min="0"
-              step="any"
+              step="0.1"
               required
               disabled={isBusy}
             />

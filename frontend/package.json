@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test:unit": "node --experimental-strip-types --test src/lib/utils.test.ts src/lib/campaigns.test.ts src/lib/profile.test.ts src/lib/campaignDraft.test.ts src/lib/web3Errors.test.ts",
     "preview": "vite preview",
     "wagmi:generate": "wagmi generate"
   },
