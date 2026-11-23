@@ -43,6 +43,16 @@ export default function Help() {
         </p>
       </header>
 
+      <aside className="mb-5 rounded-2xl border border-warning/30 bg-warning/10 p-4 sm:p-5">
+        <h2 className="font-epilogue text-sm font-semibold text-foreground">
+          Venti uses the Sepolia testnet
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          Campaigns and transactions use Sepolia test ETH, which has no real-world monetary value.
+          Switch your wallet to Sepolia before creating a campaign or contributing.
+        </p>
+      </aside>
+
       <div className="grid gap-3">
         {campaignRules.map((rule, index) => (
           <section

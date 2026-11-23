@@ -42,7 +42,15 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowDown, ArrowUp, GripVertical, ImageOff, Plus, Trash2 } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  GripVertical,
+  ImageOff,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { parseEther, parseEventLogs, type Address } from 'viem';
 import { Link } from 'react-router-dom';
@@ -116,6 +124,7 @@ export default function CreateCampaign() {
   });
   const [imageFields, setImageFields] = useState<ImageField[]>([{ id: 0, url: '' }]);
   const [imageStatuses, setImageStatuses] = useState<Record<number, ImageStatusRecord>>({});
+  const [imageRetryCounts, setImageRetryCounts] = useState<Record<number, number>>({});
   const [formError, setFormError] = useState<string>();
   const [estimatedFee, setEstimatedFee] = useState<string>();
   const [feeEstimateError, setFeeEstimateError] = useState<string>();
@@ -141,6 +150,7 @@ export default function CreateCampaign() {
   const [receiptStatus, setReceiptStatus] = useState<'success' | 'reverted'>();
   const [receiptError, setReceiptError] = useState<string>();
   const nextImageId = useRef(1);
+  const imageInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const feeEstimateRequestId = useRef(0);
   const draftPersistenceInitialized = useRef(false);
   const draftStorageNotificationShown = useRef(false);
@@ -244,7 +254,7 @@ export default function CreateCampaign() {
       active = false;
       clearTimeout(timeout);
     };
-  }, [imageFields]);
+  }, [imageFields, imageRetryCounts]);
 
   const isBusy = createCampaignLoading || isConfirming;
   const imageSortSensors = useSensors(
@@ -271,6 +281,16 @@ export default function CreateCampaign() {
     setFormError(undefined);
     setDraftStorageError(undefined);
     resetFeeEstimate();
+  };
+
+  const retryImageVerification = (id: number) => {
+    const field = imageFields.find((image) => image.id === id);
+    if (!field) return;
+    setImageStatuses((current) => ({
+      ...current,
+      [id]: { url: field.url, status: 'checking' },
+    }));
+    setImageRetryCounts((current) => ({ ...current, [id]: (current[id] ?? 0) + 1 }));
   };
 
   const moveImage = (index: number, direction: -1 | 1) => {
@@ -435,8 +455,8 @@ export default function CreateCampaign() {
     let deadline: bigint;
     let images: string[];
     try {
-      target = parseEther(form.target);
-      deadline = dateInputToDeadline(form.deadline);
+      target = parseEther(form.target.trim());
+      deadline = dateInputToDeadline(form.deadline.trim());
       images = imageFields.map(({ url }) => normalizeHttpsImageUrl(url));
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'Check the goal, end date, and image URLs.');
@@ -730,10 +750,12 @@ export default function CreateCampaign() {
               type="button"
               disabled={isBusy || imageFields.length >= MAX_CAMPAIGN_IMAGES}
               onClick={() => {
+                const id = nextImageId.current++;
                 setImageFields((current) => [
                   ...current,
-                  { id: nextImageId.current++, url: '' },
+                  { id, url: '' },
                 ]);
+                requestAnimationFrame(() => imageInputRefs.current[id]?.focus());
                 setFormError(undefined);
                 resetFeeEstimate();
               }}
@@ -762,6 +784,10 @@ export default function CreateCampaign() {
                     status={getImageStatus(field, imageStatuses)}
                     imageCount={imageFields.length}
                     isBusy={isBusy}
+                    setUrlInputRef={(element) => {
+                      imageInputRefs.current[field.id] = element;
+                    }}
+                    onRetryImage={retryImageVerification}
                     onUpdateImage={updateImageUrl}
                     onMoveImage={moveImage}
                     onRemoveImage={(id) => {
@@ -1009,6 +1035,8 @@ interface SortableImageCardProps {
   status: ImageStatus;
   imageCount: number;
   isBusy: boolean;
+  setUrlInputRef: (element: HTMLInputElement | null) => void;
+  onRetryImage: (id: number) => void;
   onUpdateImage: (id: number, url: string) => void;
   onMoveImage: (index: number, direction: -1 | 1) => void;
   onRemoveImage: (id: number) => void;
@@ -1020,6 +1048,8 @@ function SortableImageCard({
   status,
   imageCount,
   isBusy,
+  setUrlInputRef,
+  onRetryImage,
   onUpdateImage,
   onMoveImage,
   onRemoveImage,
@@ -1052,8 +1082,25 @@ function SortableImageCard({
           <div className="flex size-full flex-col items-center justify-center gap-2 text-muted-foreground">
             <ImageOff className="size-7" aria-hidden="true" />
             <span className="text-xs">
-              {status === 'checking' ? 'Checking image…' : 'Preview will appear here'}
+              {status === 'checking'
+                ? 'Checking image…'
+                : status === 'invalid'
+                  ? 'Image could not be loaded'
+                  : 'Preview will appear here'}
             </span>
+          </div>
+        )}
+        {status === 'invalid' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/65 p-3 backdrop-blur-[2px]">
+            <Button
+              type="button"
+              disabled={isBusy}
+              onClick={() => onRetryImage(field.id)}
+              className="flex-center min-h-10 gap-2 border border-border bg-card/95 px-4 text-sm text-foreground shadow-lg hover:bg-muted"
+            >
+              <RefreshCw className="size-4" aria-hidden="true" />
+              Retry image
+            </Button>
           </div>
         )}
         {index === 0 && (
@@ -1076,6 +1123,7 @@ function SortableImageCard({
         <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
           Image URL {index + 1}
           <Input
+            ref={setUrlInputRef}
             type="url"
             value={field.url}
             onChange={(event) => onUpdateImage(field.id, event.target.value)}

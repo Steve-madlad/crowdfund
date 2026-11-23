@@ -8,9 +8,10 @@ import {
 } from '@/components/ui/DropdownMenu';
 import { useTheme } from '@/providers/useTheme';
 import { formatWeb3Error } from '@/lib/web3Errors';
+import { getWalletAvatarUrl } from '@/lib/walletAvatar';
 import { Copy, LogOut, Moon, Sun, UserRound, Wallet } from 'lucide-react';
 import cn from '@/lib/utils';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useConnection, useDisconnect } from 'wagmi';
@@ -22,11 +23,25 @@ interface AccountMenuProps {
 
 export default function AccountMenu({ onRequestConnect, className }: AccountMenuProps) {
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [greenAvatar, setGreenAvatar] = useState(
+    () => localStorage.getItem('nav-avatar-color') !== 'default',
+  );
   const { address, chain, chainId, connector, isConnected } = useConnection();
   const { mutate: disconnect, isPending: disconnectPending, error: disconnectError } = useDisconnect();
   const { resolvedTheme, setTheme } = useTheme();
-  const avatarSeed = encodeURIComponent(address?.toLowerCase() ?? 'crowdfund-user');
+  const avatarUrl = getWalletAvatarUrl(address);
+  const navAvatarUrl = !isConnected
+    ? `${avatarUrl}&backgroundColor=866dfd`
+    : greenAvatar
+      ? `${avatarUrl}&backgroundColor=4acd8d`
+      : avatarUrl;
   const shortenedAddress = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : undefined;
+
+  useEffect(() => {
+    const updateAvatarColor = () => setGreenAvatar(localStorage.getItem('nav-avatar-color') !== 'default');
+    window.addEventListener('nav-avatar-color-change', updateAvatarColor);
+    return () => window.removeEventListener('nav-avatar-color-change', updateAvatarColor);
+  }, []);
 
   const handleCopyAddress = async () => {
     if (!address) return;
@@ -80,7 +95,7 @@ export default function AccountMenu({ onRequestConnect, className }: AccountMenu
         >
           {!avatarFailed ? (
             <img
-              src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${avatarSeed}&backgroundColor=${isConnected ? '4acd8d' : '866dfd'}`}
+              src={navAvatarUrl}
               alt=""
               aria-hidden="true"
               onError={() => setAvatarFailed(true)}
@@ -97,7 +112,7 @@ export default function AccountMenu({ onRequestConnect, className }: AccountMenu
             <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-secondary">
               {!avatarFailed ? (
                 <img
-                  src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${avatarSeed}&backgroundColor=${isConnected ? '4acd8d' : '866dfd'}`}
+                  src={avatarUrl}
                   alt=""
                   aria-hidden="true"
                   className="size-full object-cover"

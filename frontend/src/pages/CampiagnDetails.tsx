@@ -10,7 +10,15 @@ import {
   formatProgressPercent,
 } from '@/lib/utils';
 import { formatWeb3Error } from '@/lib/web3Errors';
+import { getWalletAvatarUrl } from '@/lib/walletAvatar';
 import WalletConnectDialog from '@/components/WalletConnectDialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import confetti from 'canvas-confetti';
 import {
   ArrowLeft,
@@ -60,6 +68,12 @@ export default function CampiagnDetails() {
   const [donationValidationError, setDonationValidationError] = useState<string>();
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   const [cancelConfirmationOpen, setCancelConfirmationOpen] = useState(false);
+  const [contributionSuccess, setContributionSuccess] = useState<{
+    amount: bigint;
+    campaignTitle: string;
+    hash: `0x${string}`;
+  }>();
+  const pendingContributionAmount = useRef<bigint | null>(null);
   const transactionAction = useRef<CampaignAction | null>(null);
   const [actionFeedback, setActionFeedback] = useState<ActionFeedback>();
   const [activeImage, setActiveImage] = useState<{ campaignId: string; index: number }>({
@@ -67,7 +81,6 @@ export default function CampiagnDetails() {
     index: 0,
   });
   const [shareStatus, setShareStatus] = useState<string>();
-  const previousGoalState = useRef<{ campaignId: string; reached: boolean } | null>(null);
   const completedTransactionToastHash = useRef<string | undefined>(undefined);
   const { address } = useConnection();
   const chainId = useChainId();
@@ -169,8 +182,6 @@ export default function CampiagnDetails() {
     campaignDetails.target > 0n &&
     campaignDetails.amountCollected >= campaignDetails.target,
   );
-  const amountCollected = campaignDetails?.amountCollected;
-  const target = campaignDetails?.target;
   const campaignEnded = remainingDays === null;
   const refundWindowKnown = Boolean(
     latestBlock && refundDelay !== undefined && !latestBlockError && !refundDelayError,
@@ -254,15 +265,33 @@ export default function CampiagnDetails() {
         cancel: 'Campaign cancelled. Supporters can now claim refunds.',
         processRefunds: 'Supporter refunds are now available.',
       }[action];
-      toast.success(successMessage);
+      if (action === 'donate') {
+        const amount = pendingContributionAmount.current;
+        if (amount !== null) {
+          setDonationAmount('');
+          setDonationValidationError(undefined);
+          setContributionSuccess({
+            amount,
+            campaignTitle: campaignDetails?.title ?? `Campaign #${campaignId}`,
+            hash: transactionHash,
+          });
+          if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            void confetti({ particleCount: 90, spread: 75, origin: { y: 0.65 }, disableForReducedMotion: true });
+          }
+        }
+        pendingContributionAmount.current = null;
+      } else {
+        toast.success(successMessage);
+      }
       void refetchCampaign();
       void refetchDonations();
       void refetchContribution();
     } else {
+      if (action === 'donate') pendingContributionAmount.current = null;
       toast.error('The campaign transaction reverted.');
     }
     transactionAction.current = null;
-  }, [campaignId, receipt, refetchCampaign, refetchDonations, refetchContribution, transactionHash]);
+  }, [campaignDetails?.title, campaignId, receipt, refetchCampaign, refetchDonations, refetchContribution, transactionHash]);
 
   useEffect(() => {
     if (!transactionHash || !receiptError) return;
@@ -280,30 +309,6 @@ export default function CampiagnDetails() {
       error: receiptError.message,
     });
   }, [campaignId, receiptError, transactionHash]);
-
-  useEffect(() => {
-    if (amountCollected === undefined || target === undefined) return;
-
-    const reached = target > 0n && amountCollected >= target;
-    const campaignKey = id ?? '';
-    const previous = previousGoalState.current;
-
-    if (
-      ((!previous || previous.campaignId !== campaignKey) ||
-        (previous.campaignId === campaignKey && !previous.reached)) &&
-      reached &&
-      !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    ) {
-      void confetti({
-        particleCount: 90,
-        spread: 75,
-        origin: { y: 0.65 },
-        disableForReducedMotion: true,
-      });
-    }
-
-    previousGoalState.current = { campaignId: campaignKey, reached };
-  }, [amountCollected, target, id]);
 
   const handleDonation = () => {
     setDonationValidationError(undefined);
@@ -347,6 +352,7 @@ export default function CampiagnDetails() {
       return;
     }
 
+    pendingContributionAmount.current = value;
     transactionAction.current = 'donate';
     setActionFeedback({ action: 'donate', stage: 'wallet' });
     console.info('[crowdfund:transaction] requesting wallet submission', {
@@ -374,6 +380,7 @@ export default function CampiagnDetails() {
         },
         onError: (error) => {
           transactionAction.current = null;
+          pendingContributionAmount.current = null;
           const message = formatWeb3Error(error);
           setActionFeedback({ action: 'donate', stage: 'error', message });
           console.error('[crowdfund:transaction] wallet submission failed', {
@@ -693,7 +700,7 @@ export default function CampiagnDetails() {
             <div className="border-border mt-5 flex flex-wrap items-center gap-3 border-t pt-5">
               <div className="bg-secondary size-11 shrink-0 overflow-hidden rounded-full">
                 <img
-                  src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${encodeURIComponent(campaignDetails.owner.toLowerCase())}`}
+                  src={getWalletAvatarUrl(campaignDetails.owner)}
                   alt=""
                   aria-hidden="true"
                   className="size-full object-cover"
@@ -756,7 +763,7 @@ export default function CampiagnDetails() {
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <img
-                          src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${encodeURIComponent(donator.toLowerCase())}`}
+                          src={getWalletAvatarUrl(donator)}
                           alt=""
                           aria-hidden="true"
                           className="bg-secondary size-9 shrink-0 rounded-full"
@@ -1006,7 +1013,7 @@ export default function CampiagnDetails() {
                   aria-invalid={Boolean(donationValidationError)}
                   placeholder="0.1"
                   min="0"
-                  step="any"
+                  step="0.1"
                   value={donationAmount}
                   onChange={(event) => {
                     setDonationAmount(event.target.value);
@@ -1062,6 +1069,58 @@ export default function CampiagnDetails() {
           </section>
         </aside>
       </div>
+      <Dialog
+        open={Boolean(contributionSuccess)}
+        onOpenChange={(open) => {
+          if (!open) setContributionSuccess(undefined);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 pr-7">
+              <Check className="size-5 text-success" aria-hidden="true" />
+              Contribution successful
+            </DialogTitle>
+            <DialogDescription>
+              Thank you for supporting this campaign. Your transaction has been confirmed.
+            </DialogDescription>
+          </DialogHeader>
+          {contributionSuccess && (
+            <div className="grid gap-3 rounded-xl border border-border bg-background p-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Campaign</p>
+                <p className="mt-1 break-words text-sm font-semibold text-foreground">
+                  {contributionSuccess.campaignTitle}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Amount contributed</p>
+                <p className="mt-1 text-sm font-semibold text-primary">
+                  {formatEth(contributionSuccess.amount)} ETH
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Transaction</p>
+                {explorerBase ? (
+                  <a
+                    href={`${explorerBase}/tx/${contributionSuccess.hash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-flex items-center gap-1 break-all text-sm text-primary underline-offset-4 hover:underline"
+                  >
+                    {contributionSuccess.hash}
+                    <ExternalLink className="size-3.5 shrink-0" aria-hidden="true" />
+                  </a>
+                ) : (
+                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                    {contributionSuccess.hash}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <WalletConnectDialog open={connectDialogOpen} onOpenChange={setConnectDialogOpen} />
     </div>
   );

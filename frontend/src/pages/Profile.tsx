@@ -8,6 +8,7 @@ import { crowdFundingAbi } from '@/generated';
 import { formatEth, formatProgressPercent } from '@/lib/utils';
 import { formatWeb3Error } from '@/lib/web3Errors';
 import { summarizeProfile } from '@/lib/profile';
+import { getWalletAvatarUrl } from '@/lib/walletAvatar';
 import {
   Bar,
   BarChart,
@@ -48,6 +49,9 @@ function compactTitle(title: string): string {
 
 export default function Profile() {
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  const [greenNavAvatar, setGreenNavAvatar] = useState(
+    () => localStorage.getItem('nav-avatar-color') !== 'default',
+  );
   const { address, isConnected } = useConnection();
   const {
     data: campaignData,
@@ -149,7 +153,7 @@ export default function Profile() {
 
       <section className="mt-6 flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-5 sm:p-6">
         <img
-          src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${encodeURIComponent(address.toLowerCase())}`}
+          src={getWalletAvatarUrl(address)}
           alt=""
           aria-hidden="true"
           className="size-14 shrink-0 rounded-full bg-secondary sm:size-16"
@@ -167,6 +171,27 @@ export default function Profile() {
           Copy address
         </Button>
         <AccountMenu onRequestConnect={() => setConnectDialogOpen(true)} />
+      </section>
+
+      <section className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 sm:px-5">
+        <div>
+          <h2 className="text-sm font-semibold text-card-foreground">Navigation icon color</h2>
+          <p className="mt-1 text-xs text-muted-foreground">Choose the background for your navigation profile image.</p>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-card-foreground">
+          <input
+            type="checkbox"
+            checked={greenNavAvatar}
+            onChange={(event) => {
+              const green = event.target.checked;
+              setGreenNavAvatar(green);
+              localStorage.setItem('nav-avatar-color', green ? 'green' : 'default');
+              window.dispatchEvent(new Event('nav-avatar-color-change'));
+            }}
+            className="size-4 accent-primary"
+          />
+          Green background
+        </label>
       </section>
 
       <section aria-label="Profile statistics" className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -270,11 +295,11 @@ export default function Profile() {
         </div>
       </section>
 
-      <section className="mt-7 grid gap-5 lg:grid-cols-2">
+      <section className="mt-7 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-8 xl:grid-cols-[repeat(2,minmax(0,1fr))]">
         <div className="min-w-0">
-          <div className="mb-4 flex items-end justify-between gap-3">
-            <div>
-              <h2 className="font-epilogue text-xl font-semibold text-foreground">Your campaigns</h2>
+          <div className="mb-4 flex min-w-0 flex-wrap items-end justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="break-words font-epilogue text-xl font-semibold text-foreground">Your campaigns</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 {summary.createdCampaigns.length} created
               </p>
@@ -293,9 +318,9 @@ export default function Profile() {
               className="h-full"
             />
           ) : (
-            <ul className="grid gap-3">
+            <ul className="grid min-w-0 gap-3">
               {summary.createdCampaigns.map(({ campaign, id }) => (
-                <li key={id}>
+                <li key={id} className="min-w-0">
                   <CampaignActivityCard
                     id={id}
                     title={campaign.title}
@@ -332,7 +357,6 @@ export default function Profile() {
             <EmptyState
               title="No contributions yet"
               description="Explore campaigns and support a cause that matters to you."
-              className="h-full"
             >
               <Link
                 to="/"
@@ -342,9 +366,9 @@ export default function Profile() {
               </Link>
             </EmptyState>
           ) : (
-            <ul className="grid gap-3">
+            <ul className="grid min-w-0 gap-3">
               {summary.supportedCampaigns.map((campaign) => (
-                <li key={campaign.id}>
+                <li key={campaign.id} className="min-w-0">
                   <CampaignActivityCard
                     id={campaign.id}
                     title={campaign.title}
@@ -454,7 +478,7 @@ function CampaignActivityCard({
   return (
     <Link
       to={`/campaign-details/${id}`}
-      className="flex min-w-0 items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/50 hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      className="flex w-full min-w-0 items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/50 hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
       <div className="size-14 shrink-0 overflow-hidden rounded-lg bg-muted">
         <CampaignImage src={image} alt="" className="size-full object-cover" />

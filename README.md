@@ -13,6 +13,8 @@ A responsive Web3 crowdfunding dApp. Browse and support campaigns, create campai
   <a href="https://hardhat.org/"><img alt="Hardhat" src="https://img.shields.io/badge/Hardhat-3-FFF100?style=for-the-badge&logo=hardhat&logoColor=111111" /></a>
 </p>
 
+> **Testnet notice:** Venti uses the Sepolia Ethereum testnet. ETH and transactions on Sepolia are for testing only and have no real-world monetary value. Use Sepolia test ETH, not real funds.
+
 ## What it does
 
 - Browse campaigns with search, status and category filters, sorting, and pagination.
@@ -62,7 +64,7 @@ Start the Vite development server:
 bun run dev
 ```
 
-The frontend Wagmi configuration supports a local Hardhat network at `http://127.0.0.1:8545` (chain ID `31337`) and Sepolia. Connect a wallet configured for the same network as the contract address.
+Venti is configured for the Sepolia testnet for public use. Sepolia ETH is test ETH and has no real-world monetary value. The frontend also supports a local Hardhat network at `http://127.0.0.1:8545` (chain ID `31337`) for development. Connect a wallet configured for the same network as the contract address.
 
 ## Work with the contract
 

@@ -18,6 +18,7 @@ import {
   type CampaignStatusFilter,
 } from '@/lib/campaigns';
 import { CAMPAIGN_BOOKMARK_STORAGE_KEY, parseCampaignBookmarkIds } from '@/lib/campaignBookmarks';
+import { getWalletAvatarUrl } from '@/lib/walletAvatar';
 import { calculateBarPercentage, daysLeft, formatEth, formatProgressPercent } from '@/lib/utils';
 import { formatWeb3Error } from '@/lib/web3Errors';
 import { Bookmark, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -218,14 +219,14 @@ export default function Home() {
       {heading}
       <section
         aria-label="Campaign filters"
-        className="border-border bg-card mt-5 grid gap-3 rounded-xl border p-4 sm:grid-cols-2 lg:grid-cols-[minmax(12rem,1fr)_repeat(3,minmax(9rem,0.65fr))_auto] lg:items-end"
+        className="border-border bg-card mt-5 grid gap-3 rounded-xl border p-4 sm:grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,1fr))_auto] lg:items-end"
       >
         {currentBookmarkState.error && (
           <p role="alert" className="text-sm text-destructive sm:col-span-2 lg:col-span-5">
             Saved campaigns are unavailable: {currentBookmarkState.error}
           </p>
         )}
-        <p className="text-muted-foreground text-sm sm:col-span-2 lg:col-span-1">
+        <p className="text-muted-foreground text-sm col-span-full">
           Search instantly from the navigation bar, or narrow campaigns here.
         </p>
         <label className="text-muted-foreground grid gap-1.5 text-xs font-medium">
@@ -247,15 +248,6 @@ export default function Home() {
             </SelectContent>
           </Select>
         </label>
-        <button
-          type="button"
-          aria-pressed={bookmarkedOnly}
-          onClick={() => updateFilters({ bookmarked: bookmarkedOnly ? '' : '1' })}
-          className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <Bookmark className={`size-4 ${bookmarkedOnly ? 'fill-primary text-primary' : ''}`} aria-hidden="true" />
-          Saved
-        </button>
         <label className="text-muted-foreground grid gap-1.5 text-xs font-medium">
           Campaign status
           <Select
@@ -288,6 +280,15 @@ export default function Home() {
             </SelectContent>
           </Select>
         </label>
+        <button
+          type="button"
+          aria-pressed={bookmarkedOnly}
+          onClick={() => updateFilters({ bookmarked: bookmarkedOnly ? '' : '1' })}
+          className="flex h-10 min-h-10 self-end items-center justify-center gap-2 rounded-lg border border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <Bookmark className={`size-4 ${bookmarkedOnly ? 'fill-primary text-primary' : ''}`} aria-hidden="true" />
+          Saved
+        </button>
       </section>
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
@@ -508,7 +509,7 @@ function CampaignCard({
           <div className="bg-secondary flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full">
             {!avatarFailed ? (
               <img
-                src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${encodeURIComponent(owner)}`}
+                src={getWalletAvatarUrl(owner)}
                 alt=""
                 aria-hidden="true"
                 onError={() => setAvatarFailed(true)}
