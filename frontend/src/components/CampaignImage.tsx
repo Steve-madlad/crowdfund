@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const fallbackImage = '/donation.jpg';
+const fallbackImage = '/donation.webp';
 
 interface CampaignImageProps {
   src?: string;
