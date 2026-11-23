@@ -136,7 +136,7 @@ export default function Navbar() {
               id="campaign-search-results"
               role="listbox"
               aria-label="Campaign search results"
-              className="absolute top-full right-0 left-0 mt-2 overflow-hidden rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-xl"
+              className="absolute z-1 top-full right-0 left-0 mt-2 overflow-hidden rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-xl"
             >
               {searchLoading ? (
                 <p className="px-3 py-4 text-sm text-muted-foreground">Searching campaigns…</p>
@@ -191,7 +191,7 @@ export default function Navbar() {
           )}
         </div>
 
-        <div className="hidden justify-end gap-4 sm:flex">
+        <div className="hidden justify-end gap-4 sm:flex px-3">
           <Button
             type="button"
             onClick={handleCreateClick}
