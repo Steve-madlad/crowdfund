@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="frontend/public/venti-OG.png" alt="Venti — community crowdfunding" width="100%" style="border-radius: 16px;" />
+</p>
+
 # Venti
 
 A responsive Web3 crowdfunding dApp. Browse and support campaigns, create campaigns with multiple images, and manage campaign funds through an Ethereum smart contract.
